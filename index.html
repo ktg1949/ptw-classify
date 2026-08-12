@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>일일 안전작업허가 분류</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --navy-950:#0b1626;
+    --navy-900:#0f1e33;
+    --navy-800:#152945;
+    --navy-700:#1e3557;
+    --steel-200:#e4e9ef;
+    --steel-100:#eef1f5;
+    --steel-50:#f6f8fa;
+    --paper:#fbfaf7;
+    --ink:#16212f;
+    --ink-soft:#5b6b7f;
+    --line:#dde3ea;
+    --orange:#d9761f;
+    --orange-deep:#b65c12;
+    --orange-tint:#fbe9d6;
+    --green:#2f7d5e;
+    --green-tint:#e1f0e8;
+    --amber:#a97416;
+    --amber-tint:#faf0da;
+    --red:#c0433a;
+    --red-tint:#fbe4e1;
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'IBM Plex Sans KR','Malgun Gothic',sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--steel-50);
+    color:var(--ink);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{max-width:1180px;margin:0 auto;padding:0 20px 64px;}
+
+  /* ===== Header ===== */
+  header.topbar{
+    background:linear-gradient(160deg,var(--navy-950),var(--navy-800) 130%);
+    color:#fff;
+    padding:26px 28px 22px;
+    border-radius:0 0 18px 18px;
+    margin:0 -20px 22px;
+    position:relative;
+    overflow:hidden;
+  }
+  header.topbar::after{
+    content:"";
+    position:absolute; right:-40px; top:-60px;
+    width:220px;height:220px;border-radius:50%;
+    background:radial-gradient(circle, rgba(217,118,31,.22), transparent 70%);
+  }
+  .topbar-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;position:relative;z-index:1;}
+  .eyebrow{
+    font-family:var(--font-mono);
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:#f2b878;margin:0 0 6px;
+  }
+  h1{
+    font-family:var(--font-display);
+    font-size:26px;font-weight:700;margin:0;letter-spacing:-.01em;
+  }
+  .subtitle{color:#a9b8ce;font-size:13.5px;margin-top:6px;max-width:520px;line-height:1.5;}
+  .date-badge{
+    font-family:var(--font-mono);
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.16);
+    padding:9px 14px;border-radius:10px;
+    font-size:13px;text-align:right;min-width:150px;
+  }
+  .date-badge b{display:block;font-size:16px;font-family:var(--font-display);margin-top:2px;}
+
+  /* ===== Upload ===== */
+  .upload-zone{
+    border:2px dashed var(--line);
+    background:#fff;
+    border-radius:16px;
+    padding:34px 24px;
+    text-align:center;
+    transition:border-color .15s, background .15s;
+  }
+  .upload-zone.drag{border-color:var(--orange);background:var(--orange-tint);}
+  .upload-zone h2{font-family:var(--font-display);font-size:17px;margin:0 0 6px;}
+  .upload-zone p{color:var(--ink-soft);font-size:13.5px;margin:0 0 18px;}
+  .btn{
+    font-family:var(--font-body);
+    font-weight:600;font-size:14px;
+    border:none;border-radius:9px;
+    padding:11px 20px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px;
+    transition:transform .1s, box-shadow .15s;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--orange);color:#fff;box-shadow:0 6px 16px -6px rgba(217,118,31,.55);}
+  .btn-primary:hover{background:var(--orange-deep);}
+  .btn-ghost{background:transparent;color:var(--navy-800);border:1px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--navy-700);}
+  #fileInput{display:none;}
+  .file-list{margin-top:16px;display:flex;flex-direction:column;gap:6px;max-width:520px;margin-left:auto;margin-right:auto;text-align:left;}
+  .file-chip{
+    display:flex;justify-content:space-between;align-items:center;
+    background:var(--steel-100);border-radius:8px;padding:8px 12px;
+    font-family:var(--font-mono);font-size:12.5px;color:var(--navy-800);
+  }
+  .file-chip .ok{color:var(--green);font-weight:600;}
+
+  /* ===== Dashboard (post-upload) ===== */
+  .dash{display:none;}
+  .dash.show{display:block;}
+
+  .stat-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px;}
+  .stat-card{
+    background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:14px 14px 12px;
+  }
+  .stat-card .n{font-family:var(--font-display);font-size:24px;font-weight:700;color:var(--navy-900);}
+  .stat-card .l{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  .stat-card.pending .n{color:var(--amber);}
+  .stat-card.psm{background:var(--orange-tint);border-color:#eec294;}
+  .stat-card.psm .n{color:var(--orange-deep);}
+
+  .toolbar{
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .search-box{
+    flex:1;min-width:200px;
+    background:#fff;border:1px solid var(--line);border-radius:9px;
+    padding:9px 13px;font-size:13.5px;font-family:var(--font-body);
+  }
+  .search-box:focus{outline:none;border-color:var(--orange);}
+
+  .chip-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px;}
+  .chip{
+    font-family:var(--font-mono);
+    font-size:12px;font-weight:500;
+    padding:7px 12px;border-radius:20px;
+    border:1px solid var(--line);background:#fff;color:var(--navy-800);
+    cursor:pointer;user-select:none;
+    display:flex;align-items:center;gap:6px;
+    transition:all .12s;
+  }
+  .chip:hover{border-color:var(--navy-700);}
+  .chip .cnt{color:var(--ink-soft);}
+  .chip.active{background:var(--navy-900);color:#fff;border-color:var(--navy-900);}
+  .chip.active .cnt{color:#c9d5e4;}
+
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
+  thead th{
+    background:var(--steel-100);
+    font-family:var(--font-mono);
+    font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);
+    text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);
+    cursor:pointer; white-space:nowrap;
+  }
+  thead th:hover{color:var(--navy-900);}
+  tbody tr{border-bottom:1px solid var(--steel-100);}
+  tbody tr:last-child{border-bottom:none;}
+  tbody tr:hover{background:var(--steel-50);}
+  tbody tr.psm-row{background:var(--orange-tint);}
+  tbody tr.psm-row:hover{background:#f7dfba;}
+  td{padding:10px 12px;font-size:13px;vertical-align:top;}
+  td.name{font-weight:500;max-width:340px;line-height:1.4;}
+  td.mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);white-space:nowrap;}
+  .tag-wrap{display:flex;flex-wrap:wrap;gap:4px;max-width:220px;}
+  .tag{
+    font-size:10.5px;font-family:var(--font-mono);font-weight:600;
+    padding:2px 7px;border-radius:5px;white-space:nowrap;
+  }
+  .tag.fire{background:#fbe4e1;color:var(--red);}
+  .tag.confined{background:#e1e9fb;color:#2c4fa8;}
+  .tag.elec{background:#fdf1cf;color:#8a6a06;}
+  .tag.dig{background:#eae3d9;color:#6b573a;}
+  .tag.rad{background:#f2ddf7;color:#7a2f8c;}
+  .tag.height{background:#dcf3ec;color:#1a7a5e;}
+  .tag.heavy{background:#e6e6ee;color:#4a4a72;}
+  .tag.dive{background:#d9f0fb;color:#186f96;}
+  .tag.psm{background:var(--orange-deep);color:#fff;}
+
+  /* stamp-style status badge */
+  .stamp{
+    display:inline-flex;align-items:center;gap:6px;
+    font-family:var(--font-mono);font-size:11px;font-weight:600;
+    padding:4px 10px 4px 8px;border-radius:20px;border:1.5px solid;
+    white-space:nowrap;
+  }
+  .stamp::before{content:"●";font-size:8px;}
+  .stamp.done{color:var(--green);border-color:var(--green);background:var(--green-tint);}
+  .stamp.review{color:var(--amber);border-color:var(--amber);background:var(--amber-tint);}
+  .stamp.draft{color:var(--red);border-color:var(--red);background:var(--red-tint);}
+
+  .empty-row td{text-align:center;color:var(--ink-soft);padding:40px 12px;font-size:13.5px;}
+
+  .foot-note{margin-top:14px;font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+  .reset-link{background:none;border:none;color:var(--navy-800);text-decoration:underline;cursor:pointer;font-size:12px;font-family:var(--font-body);padding:0;}
+
+  @media (max-width:800px){
+    .stat-row{grid-template-columns:repeat(3,1fr);}
+    table thead{display:none;}
+    table, tbody, tr, td{display:block;width:100%;}
+    tbody tr{padding:10px 12px;border-bottom:6px solid var(--steel-100);}
+    td{padding:3px 0;}
+    td.mono{white-space:normal;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="topbar-row">
+      <div>
+        <p class="eyebrow">PTW DAILY CLASSIFIER</p>
+        <h1>일일 안전작업허가 분류</h1>
+        <p class="subtitle">매일 추출되는 안전작업허가서 엑셀 3건을 병합해 위험작업 유형별로 자동 분류하고, 승인 대기 건과 PSM 설비 작업을 한눈에 확인합니다.</p>
+      </div>
+      <div class="date-badge">오늘 날짜<b id="todayLabel">—</b></div>
+    </div>
+  </header>
+
+  <div class="upload-zone" id="uploadZone">
+    <h2>엑셀 파일 업로드 (담당자용)</h2>
+    <p>발행시스템에서 받은 안전작업허가서 .xlsx 파일 3개를 선택하세요 (여러 개 동시 선택 가능)</p>
+    <button class="btn btn-primary" id="pickBtn">파일 선택</button>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
+    <div class="file-list" id="fileList"></div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-top:16px;">분류 후 <b>게시</b> 버튼을 누르면 Firebase에 저장되어, 이 페이지에 접속한 모든 사람 화면에 실시간으로 반영됩니다.</p>
+  </div>
+
+  <div class="dash" id="dash">
+    <div class="stat-row" id="statRow"></div>
+
+    <div class="toolbar">
+      <input class="search-box" id="searchBox" placeholder="작업명 · 발행자 · 부서 검색">
+      <button class="btn btn-primary" id="publishBtn">전체에 게시</button>
+      <button class="btn btn-ghost" id="reuploadBtn">파일 다시 업로드</button>
+    </div>
+
+    <div class="chip-row" id="chipRow"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="발행번호">발행번호</th>
+          <th data-sort="발행상태">상태</th>
+          <th data-sort="작업명">작업명</th>
+          <th data-sort="구분">구분/위험분류</th>
+          <th data-sort="발행부서">발행부서</th>
+          <th data-sort="운전부서">운전부서</th>
+          <th data-sort="발행자">발행자</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div class="foot-note">
+      <span id="countNote"></span>
+      <button class="reset-link" id="resetLink">전체 초기화</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const HAZARD_DEFS = [
+  {key:'구분_화기', label:'화기작업', cls:'fire', test:r => r['구분']==='화기작업'},
+  {key:'밀폐', label:'밀폐공간', cls:'confined'},
+  {key:'전기', label:'전기작업', cls:'elec'},
+  {key:'굴착', label:'굴착작업', cls:'dig'},
+  {key:'방사선', label:'방사선', cls:'rad'},
+  {key:'고소', label:'고소작업', cls:'height'},
+  {key:'중장비', label:'중장비', cls:'heavy'},
+  {key:'잠수', label:'잠수작업', cls:'dive'},
+  {key:'PSM설비', label:'PSM설비', cls:'psm'},
+];
+
+const STATUS_MAP = {
+  '발행완료': {cls:'done', label:'발행완료'},
+  'EES 승인중': {cls:'review', label:'승인중'},
+  '승인중': {cls:'review', label:'승인중'},
+  '작성중': {cls:'draft', label:'작성중'},
+};
+
+let records = [];      // merged, deduped
+let activeFilter = 'all';
+let searchTerm = '';
+let sortKey = '발행번호';
+let sortDir = -1;
+document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
+
+// ===== Firebase 설정 =====
+// Firebase 콘솔(console.firebase.google.com) → 프로젝트 설정 → 웹 앱 추가 시 나오는 값으로 교체하세요.
+const firebaseConfig = {
+  apiKey: "AIzaSyAHd6bdC7ZZtGhrruxrpBadFMSMqZmiWEg",
+  authDomain: "ptw-classify.firebaseapp.com",
+  projectId: "ptw-classify",
+  messagingSenderId: "959331381584",
+  appId: "1:959331381584:web:61363375bdae74476cbc55",
+};
+// 임의로 정한 비밀 문자열입니다. 원하시면 자유롭게 바꾸셔도 되지만,
+// 반드시 Firestore 보안 규칙(README 3번)에 있는 문자열과 동일해야 합니다.
+const ADMIN_KEY = "ptw-classify-2026";
+
+let db = null;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+}catch(err){
+  console.error('Firebase 초기화 실패 — firebaseConfig 값을 확인하세요.', err);
+}
+
+const DOC_REF = () => db.collection('ptw').doc('latest');
+
+// 실시간 구독: 누군가 게시하면 이 페이지를 열어둔 모든 사람 화면이 자동으로 갱신됩니다.
+function subscribeLive(){
+  if(!db) return;
+  DOC_REF().onSnapshot(snap=>{
+    if(!snap.exists) return;
+    const data = snap.data();
+    if(data && Array.isArray(data.records) && data.records.length){
+      records = data.records;
+      renderDash();
+      showPublishedNote(data.savedAt);
+    }
+  }, err=>{
+    console.error('실시간 구독 오류 — Firestore 보안 규칙(읽기 허용)을 확인하세요.', err);
+  });
+}
+
+function showPublishedNote(savedAt){
+  let note = document.getElementById('publishedNote');
+  const t = savedAt ? new Date(savedAt).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+  if(!note){
+    note = document.createElement('div');
+    note.id = 'publishedNote';
+    note.style.cssText = 'background:#eef1f5;border:1px solid #dde3ea;border-radius:9px;padding:9px 13px;font-size:12.5px;color:#5b6b7f;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;';
+    document.getElementById('dash').insertBefore(note, document.getElementById('dash').firstChild);
+  }
+  note.innerHTML = `<span>실시간 게시된 최신 분류 결과입니다${t ? ` (업데이트: ${t})` : ''}. 접속한 모든 사람에게 자동으로 반영됩니다.</span>`;
+}
+
+async function publishToFirebase(){
+  if(!db){ alert('Firebase 연결에 실패했습니다. firebaseConfig 값을 확인하세요.'); return; }
+  const btn = document.getElementById('publishBtn');
+  const original = btn.textContent;
+  btn.textContent = '게시 중…'; btn.disabled = true;
+  try{
+    await DOC_REF().set({
+      savedAt: new Date().toISOString(),
+      records,
+      adminKey: ADMIN_KEY,
+    });
+    btn.textContent = '게시 완료 ✓';
+  }catch(err){
+    console.error(err);
+    btn.textContent = '게시 실패';
+    alert('게시 실패: Firestore 쓰기 권한(보안 규칙)을 확인하세요.\n' + err.message);
+  }
+  setTimeout(()=>{ btn.textContent = original; btn.disabled = false; }, 2000);
+}
+
+const fileInput = document.getElementById('fileInput');
+const uploadZone = document.getElementById('uploadZone');
+const pickBtn = document.getElementById('pickBtn');
+const fileListEl = document.getElementById('fileList');
+
+pickBtn.addEventListener('click', () => fileInput.click());
+
+['dragover','dragleave','drop'].forEach(evt=>{
+  uploadZone.addEventListener(evt, e=>{
+    e.preventDefault();
+    if(evt==='dragover') uploadZone.classList.add('drag');
+    if(evt==='dragleave'||evt==='drop') uploadZone.classList.remove('drag');
+    if(evt==='drop' && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+});
+
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+function handleFiles(fileArr){
+  const files = Array.from(fileArr).filter(f=>/\.xlsx?$/i.test(f.name));
+  if(!files.length) return;
+  fileListEl.innerHTML = '';
+  let merged = new Map(); // 발행번호 -> row, later files overwrite earlier (latest snapshot wins)
+  let loaded = 0;
+
+  files.sort((a,b)=> a.name.localeCompare(b.name)); // filenames carry timestamp, so this orders oldest->newest
+
+  files.forEach(file=>{
+    const chip = document.createElement('div');
+    chip.className = 'file-chip';
+    chip.innerHTML = `<span>${file.name}</span><span>불러오는 중…</span>`;
+    fileListEl.appendChild(chip);
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try{
+        const wb = XLSX.read(evt.target.result, {type:'array'});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+        rows.forEach(r=>{
+          const id = String(r['발행번호']||'').trim();
+          if(id) merged.set(id, r);
+        });
+        chip.innerHTML = `<span>${file.name}</span><span class="ok">${rows.length}건 ✓</span>`;
+      }catch(err){
+        chip.innerHTML = `<span>${file.name}</span><span style="color:#c0433a">읽기 실패</span>`;
+      }
+      loaded++;
+      if(loaded === files.length){
+        records = Array.from(merged.values());
+        renderDash();
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function classify(r){
+  return HAZARD_DEFS.filter(h => h.test ? h.test(r) : String(r[h.key]).trim().toUpperCase()==='Y');
+}
+
+function statusInfo(r){
+  const raw = String(r['발행상태']||'').trim();
+  return STATUS_MAP[raw] || {cls:'draft', label: raw || '미확인'};
+}
+
+function renderDash(){
+  document.getElementById('dash').classList.add('show');
+  uploadZone.style.display = 'none';
+  buildChips();
+  renderStats();
+  renderTable();
+}
+
+function buildChips(){
+  const counts = {all: records.length};
+  HAZARD_DEFS.forEach(h => counts[h.key] = records.filter(r=>classify(r).some(x=>x.key===h.key)).length);
+  counts['pending'] = records.filter(r=> statusInfo(r).cls !== 'done').length;
+
+  const chipRow = document.getElementById('chipRow');
+  chipRow.innerHTML = '';
+  const defs = [
+    {key:'all', label:'전체'},
+    {key:'pending', label:'승인대기'},
+    ...HAZARD_DEFS.map(h=>({key:h.key, label:h.label})),
+  ];
+  defs.forEach(d=>{
+    const el = document.createElement('div');
+    el.className = 'chip' + (activeFilter===d.key ? ' active':'');
+    el.innerHTML = `${d.label} <span class="cnt">${counts[d.key]||0}</span>`;
+    el.onclick = ()=>{ activeFilter = d.key; buildChips(); renderTable(); };
+    chipRow.appendChild(el);
+  });
+}
+
+function renderStats(){
+  const total = records.length;
+  const done = records.filter(r=>statusInfo(r).cls==='done').length;
+  const pending = total - done;
+  const fire = records.filter(r=>r['구분']==='화기작업').length;
+  const psm = records.filter(r=>String(r['PSM설비']).trim().toUpperCase()==='Y').length;
+  const depts = new Set(records.map(r=>r['발행부서'])).size;
+
+  const cards = [
+    {n: total, l:'총 허가 건수'},
+    {n: done, l:'발행완료'},
+    {n: pending, l:'승인/작성 대기', pending:true},
+    {n: fire, l:'화기작업'},
+    {n: psm, l:'PSM 설비', psm:true},
+    {n: depts, l:'발행부서 수'},
+  ];
+  const row = document.getElementById('statRow');
+  row.innerHTML = cards.map(c=>`
+    <div class="stat-card ${c.pending?'pending':''} ${c.psm?'psm':''}">
+      <div class="n">${c.n}</div>
+      <div class="l">${c.l}</div>
+    </div>`).join('');
+}
+
+document.getElementById('searchBox').addEventListener('input', e=>{
+  searchTerm = e.target.value.trim().toLowerCase();
+  renderTable();
+});
+
+document.querySelectorAll('th[data-sort]').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.dataset.sort;
+    if(sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
+    renderTable();
+  });
+});
+
+function renderTable(){
+  let rows = records.slice();
+
+  if(activeFilter === 'pending'){
+    rows = rows.filter(r=>statusInfo(r).cls !== 'done');
+  } else if(activeFilter !== 'all'){
+    rows = rows.filter(r=>classify(r).some(h=>h.key===activeFilter));
+  }
+
+  if(searchTerm){
+    rows = rows.filter(r=>{
+      const hay = [r['작업명'],r['발행자'],r['발행부서'],r['운전부서'],r['발행번호']].join(' ').toLowerCase();
+      return hay.includes(searchTerm);
+    });
+  }
+
+  rows.sort((a,b)=>{
+    let av = a[sortKey], bv = b[sortKey];
+    if(sortKey==='발행번호'){ av = Number(av)||0; bv = Number(bv)||0; }
+    else { av = String(av||''); bv = String(bv||''); }
+    if(av < bv) return -1*sortDir;
+    if(av > bv) return 1*sortDir;
+    return 0;
+  });
+
+  const tbody = document.getElementById('tbody');
+  if(!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">조건에 맞는 허가서가 없습니다.</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map(r=>{
+      const tags = classify(r);
+      const st = statusInfo(r);
+      const isPsm = tags.some(t=>t.key==='PSM설비');
+      return `
+      <tr class="${isPsm?'psm-row':''}">
+        <td class="mono">#${r['발행번호']||'—'}</td>
+        <td><span class="stamp ${st.cls}">${st.label}</span></td>
+        <td class="name">${escapeHtml(r['작업명']||'')}</td>
+        <td><div class="tag-wrap">${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : '<span class="tag" style="background:#eef1f5;color:#5b6b7f">일반</span>'}</div></td>
+        <td>${escapeHtml(r['발행부서']||'')}</td>
+        <td>${escapeHtml(r['운전부서']||'')}</td>
+        <td>${escapeHtml(r['발행자']||'')}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('countNote').textContent = `${rows.length}건 표시 중 (전체 ${records.length}건)`;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('reuploadBtn').addEventListener('click', resetAll);
+document.getElementById('resetLink').addEventListener('click', resetAll);
+document.getElementById('publishBtn').addEventListener('click', publishToFirebase);
+
+function resetAll(){
+  records = [];
+  activeFilter = 'all';
+  searchTerm = '';
+  document.getElementById('searchBox').value = '';
+  fileListEl.innerHTML = '';
+  fileInput.value = '';
+  document.getElementById('dash').classList.remove('show');
+  uploadZone.style.display = 'block';
+}
+
+subscribeLive();
+</script>
+</body>
+</html>
