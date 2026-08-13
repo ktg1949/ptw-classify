@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>일일 안전작업허가 분류</title>
+<title>고위험 일일작업허가 리스트</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -222,7 +222,7 @@
     <div class="topbar-row">
       <div>
         <p class="eyebrow">PTW DAILY CLASSIFIER</p>
-        <h1>일일 안전작업허가 분류</h1>
+        <h1>고위험 일일작업허가 리스트</h1>
       </div>
       <div class="date-badge">
         오늘 날짜<b id="todayLabel">—</b>
@@ -367,7 +367,7 @@ function subscribeLive(){
     if(!snap.exists) return;
     const data = snap.data();
     if(data && Array.isArray(data.records) && data.records.length){
-      records = data.records;
+      records = data.records.filter(r => classify(r).length > 0);
       renderDash();
       showPublishedNote(data.savedAt);
     }
@@ -475,7 +475,7 @@ function handleFiles(fileArr){
       }
       loaded++;
       if(loaded === files.length){
-        records = Array.from(merged.values());
+        records = Array.from(merged.values()).filter(r => classify(r).length > 0);
         renderDash();
       }
     };
@@ -531,7 +531,7 @@ function renderStats(){
   const depts = new Set(records.map(r=>r['발행부서'])).size;
 
   const cards = [
-    {n: total, l:'총 허가 건수'},
+    {n: total, l:'고위험 허가 건수'},
     {n: done, l:'발행완료'},
     {n: pending, l:'승인/작성 대기', pending:true},
     {n: fire, l:'화기작업'},
@@ -597,7 +597,7 @@ function renderTable(){
         <td class="mono">#${r['발행번호']||'—'}</td>
         <td><span class="stamp ${st.cls}">${st.label}</span></td>
         <td class="name">${escapeHtml(r['작업명']||'')}</td>
-        <td><div class="tag-wrap">${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : '<span class="tag" style="background:#eef1f5;color:#5b6b7f">일반</span>'}</div></td>
+        <td><div class="tag-wrap">${tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('')}</div></td>
         <td>${escapeHtml(r['발행부서']||'')}</td>
         <td>${escapeHtml(r['운전부서']||'')}</td>
         <td>${escapeHtml(r['발행자']||'')}</td>
