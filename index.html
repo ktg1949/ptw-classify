@@ -501,6 +501,11 @@ function statusInfo(r){
 
 function toDateOnlyString(v){
   if(v instanceof Date && !isNaN(v)) return v.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
+  if(v && typeof v.toDate === 'function'){
+    // Firestore Timestamp 객체 (JS Date를 게시하면 Firestore가 자체 Timestamp 타입으로 저장함)
+    const d = v.toDate();
+    if(!isNaN(d)) return d.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
+  }
   if(typeof v === 'number'){
     // 엑셀 날짜 일련번호 (cellDates 파싱이 안 된 경우 대비)
     const d = XLSX.SSF ? XLSX.SSF.parse_date_code(v) : null;
