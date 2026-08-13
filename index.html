@@ -360,9 +360,12 @@ try{
 const DOC_REF = () => db.collection('ptw').doc('latest');
 
 // 실시간 구독: 누군가 게시하면 이 페이지를 열어둔 모든 사람 화면이 자동으로 갱신됩니다.
+let hasLocalDraft = false; // 업로드했지만 아직 게시 안 한 상태 — 이 동안엔 실시간 구독이 화면을 덮어쓰지 않음
+
 function subscribeLive(){
   if(!db) return;
   DOC_REF().onSnapshot(snap=>{
+    if(hasLocalDraft) return; // 로컬에 아직 게시 안 한 업로드가 있으면 무시
     if(!snap.exists) return;
     const data = snap.data();
     if(data && Array.isArray(data.records) && data.records.length){
@@ -381,9 +384,12 @@ function showPublishedNote(savedAt){
   if(!note){
     note = document.createElement('div');
     note.id = 'publishedNote';
-    note.style.cssText = 'background:#eef1f5;border:1px solid #dde3ea;border-radius:9px;padding:9px 13px;font-size:12.5px;color:#5b6b7f;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;';
+    note.style.cssText = 'border-radius:9px;padding:9px 13px;font-size:12.5px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;';
     document.getElementById('dash').insertBefore(note, document.getElementById('dash').firstChild);
   }
+  note.style.background = '#eef1f5';
+  note.style.border = '1px solid #dde3ea';
+  note.style.color = '#5b6b7f';
   note.innerHTML = `<span>실시간 게시된 최신 분류 결과입니다${t ? ` (업데이트: ${t})` : ''}. 접속한 모든 사람에게 자동으로 반영됩니다.</span>`;
 }
 
@@ -399,6 +405,7 @@ async function publishToFirebase(){
       adminKey: ADMIN_KEY,
     });
     btn.textContent = '게시 완료 ✓';
+    hasLocalDraft = false;
   }catch(err){
     console.error(err);
     btn.textContent = '게시 실패';
@@ -475,6 +482,7 @@ function handleFiles(fileArr){
       loaded++;
       if(loaded === files.length){
         records = Array.from(merged.values()).filter(r => classify(r).length > 0);
+        hasLocalDraft = true;
         renderDash();
       }
     };
@@ -530,6 +538,21 @@ function renderDash(){
   renderStats();
   renderTable();
   updateWorkDateLabel();
+  if(hasLocalDraft) showDraftNote();
+}
+
+function showDraftNote(){
+  let note = document.getElementById('publishedNote');
+  if(!note){
+    note = document.createElement('div');
+    note.id = 'publishedNote';
+    note.style.cssText = 'border-radius:9px;padding:9px 13px;font-size:12.5px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;';
+    document.getElementById('dash').insertBefore(note, document.getElementById('dash').firstChild);
+  }
+  note.style.background = '#faf0da';
+  note.style.border = '1px solid #eec294';
+  note.style.color = '#8a6a06';
+  note.innerHTML = `<span>⚠ 아직 게시되지 않은 미리보기입니다. "전체에 게시"를 눌러야 다른 사람에게도 반영됩니다.</span>`;
 }
 
 function buildChips(){
@@ -649,6 +672,7 @@ document.getElementById('publishBtn').addEventListener('click', publishToFirebas
 
 function resetAll(){
   records = [];
+  hasLocalDraft = false;
   activeFilter = 'all';
   searchTerm = '';
   document.getElementById('searchBox').value = '';
