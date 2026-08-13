@@ -454,25 +454,74 @@ function handleFiles(fileArr){
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:''});
 
-        // 헤더 행이 1행이 아닐 수 있으므로(제목 행 등), 처음 10행 안에서 '발행번호'가 있는 행을 헤더로 인식
-        let headerIdx = raw.findIndex(row => row.some(cell => String(cell).trim() === '발행번호'));
-        if(headerIdx === -1) headerIdx = 0; // 못 찾으면 기존 방식(1행)으로 폴백
-
-        const headers = raw[headerIdx].map(h => String(h).trim());
-        const dataRows = raw.slice(headerIdx + 1);
-        const rows = dataRows
-          .filter(r => r.some(cell => String(cell).trim() !== ''))
-          .map(r => {
-            const obj = {};
-            headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
-            return obj;
-          });
+        const ptwHeaderIdx = raw.findIndex(row => row.some(cell => String(cell).trim() === '발행번호'));
+        const hazHeaderIdx = raw.findIndex(row =>
+          row.some(cell => String(cell).trim() === '업체명') &&
+          row.some(cell => String(cell).trim() === '유해위험요소')
+        );
 
         let addedCount = 0;
-        rows.forEach(r=>{
-          const id = String(r['발행번호']||'').trim();
-          if(id){ merged.set(id, r); addedCount++; }
-        });
+
+        if(ptwHeaderIdx !== -1){
+          // ===== 안전작업허가서(PTW) 양식: 발행번호 기준 =====
+          const headers = raw[ptwHeaderIdx].map(h => String(h).trim());
+          const rows = raw.slice(ptwHeaderIdx + 1)
+            .filter(r => r.some(cell => String(cell).trim() !== ''))
+            .map(r => {
+              const obj = {};
+              headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
+              return obj;
+            });
+          rows.forEach(r=>{
+            const id = String(r['발행번호']||'').trim();
+            if(id){ merged.set(id, r); addedCount++; }
+          });
+        } else if(hazHeaderIdx !== -1){
+          // ===== 유해위험작업 List 양식: No./업체명/장소/유해위험요소 기준 =====
+          // 제목 행 등에서 날짜(예: "유해위험작업(2026-08-14)") 추출
+          let workDate = '';
+          for(let i=0; i<hazHeaderIdx; i++){
+            const line = raw[i].join(' ');
+            const m = line.match(/(\d{4})[-.](\d{1,2})[-.](\d{1,2})/);
+            if(m){ workDate = `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`; break; }
+          }
+          const headers = raw[hazHeaderIdx].map(h => String(h).trim());
+          const rows = raw.slice(hazHeaderIdx + 1)
+            .filter(r => r.some(cell => String(cell).trim() !== ''))
+            .map(r => {
+              const obj = {};
+              headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
+              return obj;
+            });
+          rows.forEach(r=>{
+            const no = String(r['No.']||r['No']||'').trim();
+            const company = String(r['업체명']||'').trim();
+            const place = String(r['장소']||'').trim();
+            if(!no && !company) return;
+            const hz = String(r['유해위험요소']||'');
+            const mapped = {
+              '발행번호': `HZ-${workDate||'0000-00-00'}-${no}-${company}`,
+              '작업명': `[${company}] ${String(r['작업내용']||'').trim()}`,
+              '작업시작일': workDate,
+              '발행자': String(r['현장안전관리자']||'').trim(),
+              '발행부서': company,
+              '운전부서': place,
+              '구분': hz.includes('화기') ? '화기작업' : '일반작업',
+              '발행상태': '발행완료',
+              '밀폐': hz.includes('밀폐') ? 'Y':'N',
+              '전기': hz.includes('전기') ? 'Y':'N',
+              '굴착': hz.includes('굴착') ? 'Y':'N',
+              '방사선': hz.includes('방사선') ? 'Y':'N',
+              '고소': hz.includes('고소') ? 'Y':'N',
+              '중장비': hz.includes('중장비') ? 'Y':'N',
+              '잠수': hz.includes('잠수') ? 'Y':'N',
+              'PSM설비': hz.includes('PSM') ? 'Y':'N',
+            };
+            merged.set(mapped['발행번호'], mapped);
+            addedCount++;
+          });
+        }
+
         chip.innerHTML = addedCount > 0
           ? `<span>${file.name}</span><span class="ok">${addedCount}건 ✓</span>`
           : `<span>${file.name}</span><span style="color:#c0433a">0건 인식 (헤더 확인 필요)</span>`;
