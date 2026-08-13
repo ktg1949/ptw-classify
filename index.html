@@ -225,7 +225,7 @@
         <h1>고위험 일일작업허가 리스트</h1>
       </div>
       <div class="date-badge">
-        오늘 날짜<b id="todayLabel">—</b>
+        작업날짜<b id="todayLabel">—</b>
         <button class="btn" id="adminToggleBtn" style="margin-top:10px;width:100%;font-size:12px;padding:7px 10px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.3);">담당자 모드</button>
       </div>
     </div>
@@ -304,7 +304,6 @@ let activeFilter = 'all';
 let searchTerm = '';
 let sortKey = '발행번호';
 let sortDir = -1;
-document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
 
 // ===== Firebase 설정 =====
 // Firebase 콘솔(console.firebase.google.com) → 프로젝트 설정 → 웹 앱 추가 시 나오는 값으로 교체하세요.
@@ -444,7 +443,7 @@ function handleFiles(fileArr){
     const reader = new FileReader();
     reader.onload = evt => {
       try{
-        const wb = XLSX.read(evt.target.result, {type:'array'});
+        const wb = XLSX.read(evt.target.result, {type:'array', cellDates:true});
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
 
@@ -492,6 +491,37 @@ function statusInfo(r){
   return STATUS_MAP[raw] || {cls:'draft', label: raw || '미확인'};
 }
 
+function toDateOnlyString(v){
+  if(v instanceof Date && !isNaN(v)) return v.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
+  if(typeof v === 'number'){
+    // 엑셀 날짜 일련번호 (cellDates 파싱이 안 된 경우 대비)
+    const d = XLSX.SSF ? XLSX.SSF.parse_date_code(v) : null;
+    if(d) return `${d.y}. ${String(d.m).padStart(2,'0')}. ${String(d.d).padStart(2,'0')}.`;
+  }
+  const s = String(v||'').trim();
+  if(/^\d{4}-\d{2}-\d{2}T/.test(s)){
+    // Firestore에서 불러온 경우 Date가 ISO 문자열로 직렬화되어 있음
+    const parsed = new Date(s);
+    if(!isNaN(parsed)) return parsed.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
+  }
+  return s || null;
+}
+
+function updateWorkDateLabel(){
+  const label = document.getElementById('todayLabel');
+  if(!records.length){ label.textContent = '—'; return; }
+  const counts = {};
+  records.forEach(r=>{
+    const d = toDateOnlyString(r['작업시작일']);
+    if(d) counts[d] = (counts[d]||0) + 1;
+  });
+  const keys = Object.keys(counts);
+  if(!keys.length){ label.textContent = '—'; return; }
+  keys.sort((a,b)=> counts[b]-counts[a]);
+  const top = keys[0];
+  label.textContent = keys.length > 1 ? `${top} 외` : top;
+}
+
 function renderDash(){
   document.getElementById('dash').classList.add('show');
   uploadZone.style.display = 'none';
@@ -499,6 +529,7 @@ function renderDash(){
   buildChips();
   renderStats();
   renderTable();
+  updateWorkDateLabel();
 }
 
 function buildChips(){
