@@ -275,6 +275,26 @@
       <span id="countNote"></span>
       <button class="reset-link" id="resetLink" style="display:none;">전체 초기화</button>
     </div>
+
+    <div id="hazSection" style="display:none;margin-top:34px;">
+      <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 4px;">유해위험작업 List</h2>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">별도 양식으로 제출된 현장별 유해위험작업입니다 (엑셀 원본 컬럼 그대로 표시)</p>
+      <table>
+        <thead>
+          <tr>
+            <th>No.</th>
+            <th>업체명</th>
+            <th>장소</th>
+            <th>실내/외</th>
+            <th>작업내용</th>
+            <th>인력</th>
+            <th>유해위험요소</th>
+            <th>현장안전관리자</th>
+          </tr>
+        </thead>
+        <tbody id="hazTbody"></tbody>
+      </table>
+    </div>
   </div>
 
 </div>
@@ -292,6 +312,24 @@ const HAZARD_DEFS = [
   {key:'PSM설비', label:'PSM설비', cls:'psm'},
 ];
 
+// 유해위험작업 List는 Y/N 컬럼이 아니라 자유 텍스트(유해위험요소)라서, 키워드로 HAZARD_DEFS와 동일한 key에 매핑
+const HAZARD_KEYWORDS = {
+  '구분_화기': '화기',
+  '밀폐': '밀폐',
+  '전기': '전기',
+  '굴착': '굴착',
+  '방사선': '방사선',
+  '고소': '고소',
+  '중장비': '중장비',
+  '잠수': '잠수',
+  'PSM설비': 'PSM',
+};
+
+function classifyHazardText(text){
+  const hz = String(text||'');
+  return HAZARD_DEFS.filter(h => hz.includes(HAZARD_KEYWORDS[h.key]));
+}
+
 const STATUS_MAP = {
   '발행완료': {cls:'done', label:'발행완료'},
   'EES 승인중': {cls:'review', label:'승인중'},
@@ -300,6 +338,7 @@ const STATUS_MAP = {
 };
 
 let records = [];      // merged, deduped
+let hazardRecords = []; // 유해위험작업 List (원본 컬럼 그대로)
 let activeFilter = 'all';
 let searchTerm = '';
 let sortKey = '발행번호';
@@ -370,6 +409,7 @@ function subscribeLive(){
     const data = snap.data();
     if(data && Array.isArray(data.records) && data.records.length){
       records = data.records.filter(r => classify(r).length > 0);
+      hazardRecords = Array.isArray(data.hazardRecords) ? data.hazardRecords : [];
       renderDash();
       showPublishedNote(data.savedAt);
     }
@@ -402,6 +442,7 @@ async function publishToFirebase(){
     await DOC_REF().set({
       savedAt: new Date().toISOString(),
       records,
+      hazardRecords,
       adminKey: ADMIN_KEY,
     });
     btn.textContent = '게시 완료 ✓';
@@ -436,7 +477,8 @@ function handleFiles(fileArr){
   const files = Array.from(fileArr).filter(f=>/\.xlsx?$/i.test(f.name));
   if(!files.length) return;
   fileListEl.innerHTML = '';
-  let merged = new Map(); // 발행번호 -> row, later files overwrite earlier (latest snapshot wins)
+  let merged = new Map();    // PTW 발행번호 -> row
+  let hazMerged = new Map(); // 유해위험작업 List -> row (원본 컬럼 그대로 보관)
   let loaded = 0;
 
   files.sort((a,b)=> a.name.localeCompare(b.name)); // filenames carry timestamp, so this orders oldest->newest
@@ -477,8 +519,7 @@ function handleFiles(fileArr){
             if(id){ merged.set(id, r); addedCount++; }
           });
         } else if(hazHeaderIdx !== -1){
-          // ===== 유해위험작업 List 양식: No./업체명/장소/유해위험요소 기준 =====
-          // 제목 행 등에서 날짜(예: "유해위험작업(2026-08-14)") 추출
+          // ===== 유해위험작업 List 양식: 원본 컬럼 그대로 별도 표에 보관 =====
           let workDate = '';
           for(let i=0; i<hazHeaderIdx; i++){
             const line = raw[i].join(' ');
@@ -498,26 +539,18 @@ function handleFiles(fileArr){
             const company = String(r['업체명']||'').trim();
             const place = String(r['장소']||'').trim();
             if(!no && !company) return;
-            const hz = String(r['유해위험요소']||'');
-            const mapped = {
-              '발행번호': `HZ-${workDate||'0000-00-00'}-${no}-${company}`,
-              '작업명': `[${company}] ${String(r['작업내용']||'').trim()}`,
-              '작업시작일': workDate,
-              '발행자': String(r['현장안전관리자']||'').trim(),
-              '발행부서': company,
-              '운전부서': place,
-              '구분': hz.includes('화기') ? '화기작업' : '일반작업',
-              '발행상태': '발행완료',
-              '밀폐': hz.includes('밀폐') ? 'Y':'N',
-              '전기': hz.includes('전기') ? 'Y':'N',
-              '굴착': hz.includes('굴착') ? 'Y':'N',
-              '방사선': hz.includes('방사선') ? 'Y':'N',
-              '고소': hz.includes('고소') ? 'Y':'N',
-              '중장비': hz.includes('중장비') ? 'Y':'N',
-              '잠수': hz.includes('잠수') ? 'Y':'N',
-              'PSM설비': hz.includes('PSM') ? 'Y':'N',
-            };
-            merged.set(mapped['발행번호'], mapped);
+            const key = `${workDate}-${no}-${company}-${place}`;
+            hazMerged.set(key, {
+              'No.': no,
+              '업체명': company,
+              '장소': place,
+              '실내/외': String(r['실내/외']||'').trim(),
+              '작업내용': String(r['작업내용']||'').trim(),
+              '작업투입 인력': String(r['작업투입 인력']||'').trim(),
+              '유해위험요소': String(r['유해위험요소']||'').trim(),
+              '현장안전관리자': String(r['현장안전관리자']||'').trim(),
+              '작업날짜': workDate,
+            });
             addedCount++;
           });
         }
@@ -531,6 +564,7 @@ function handleFiles(fileArr){
       loaded++;
       if(loaded === files.length){
         records = Array.from(merged.values()).filter(r => classify(r).length > 0);
+        hazardRecords = Array.from(hazMerged.values());
         hasLocalDraft = true;
         renderDash();
       }
@@ -595,6 +629,7 @@ function renderDash(){
   buildChips();
   renderStats();
   renderTable();
+  renderHazardTable();
   updateWorkDateLabel();
   if(hasLocalDraft) showDraftNote();
 }
@@ -614,8 +649,11 @@ function showDraftNote(){
 }
 
 function buildChips(){
-  const counts = {all: records.length};
-  HAZARD_DEFS.forEach(h => counts[h.key] = records.filter(r=>classify(r).some(x=>x.key===h.key)).length);
+  const counts = {all: records.length + hazardRecords.length};
+  HAZARD_DEFS.forEach(h => counts[h.key] =
+    records.filter(r=>classify(r).some(x=>x.key===h.key)).length +
+    hazardRecords.filter(r=>classifyHazardText(r['유해위험요소']).some(x=>x.key===h.key)).length
+  );
   counts['pending'] = records.filter(r=> statusInfo(r).cls !== 'done').length;
 
   const chipRow = document.getElementById('chipRow');
@@ -629,7 +667,7 @@ function buildChips(){
     const el = document.createElement('div');
     el.className = 'chip' + (activeFilter===d.key ? ' active':'');
     el.innerHTML = `${d.label} <span class="cnt">${counts[d.key]||0}</span>`;
-    el.onclick = ()=>{ activeFilter = d.key; buildChips(); renderTable(); };
+    el.onclick = ()=>{ activeFilter = d.key; buildChips(); renderTable(); renderHazardTable(); };
     chipRow.appendChild(el);
   });
 }
@@ -661,6 +699,7 @@ function renderStats(){
 document.getElementById('searchBox').addEventListener('input', e=>{
   searchTerm = e.target.value.trim().toLowerCase();
   renderTable();
+  renderHazardTable();
 });
 
 document.querySelectorAll('th[data-sort]').forEach(th=>{
@@ -724,12 +763,61 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function renderHazardTable(){
+  const section = document.getElementById('hazSection');
+  const tbody = document.getElementById('hazTbody');
+
+  let rows = hazardRecords.slice();
+
+  if(activeFilter === 'pending'){
+    rows = []; // 유해위험작업 List에는 승인대기 개념이 없음
+  } else if(activeFilter !== 'all'){
+    rows = rows.filter(r => classifyHazardText(r['유해위험요소']).some(h=>h.key===activeFilter));
+  }
+
+  if(searchTerm){
+    rows = rows.filter(r=>{
+      const hay = [r['작업내용'],r['업체명'],r['장소'],r['현장안전관리자'],r['No.']].join(' ').toLowerCase();
+      return hay.includes(searchTerm);
+    });
+  }
+
+  if(!hazardRecords.length){
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  if(!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">조건에 맞는 항목이 없습니다.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r=>{
+    const hz = String(r['유해위험요소']||'');
+    const tags = classifyHazardText(hz);
+    const tagHtml = tags.map(t=>`<span class="tag ${t.cls}" style="margin-right:3px;">${t.label.replace('작업','').replace('공간','').replace('설비','')}</span>`).join('');
+    return `
+    <tr>
+      <td class="mono">${escapeHtml(r['No.']||'')}</td>
+      <td>${escapeHtml(r['업체명']||'')}</td>
+      <td>${escapeHtml(r['장소']||'')}</td>
+      <td>${escapeHtml(r['실내/외']||'')}</td>
+      <td class="name">${escapeHtml(r['작업내용']||'')}</td>
+      <td class="mono">${escapeHtml(r['작업투입 인력']||'')}</td>
+      <td>${tagHtml}<div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(hz)}</div></td>
+      <td>${escapeHtml(r['현장안전관리자']||'')}</td>
+    </tr>`;
+  }).join('');
+}
+
 document.getElementById('reuploadBtn').addEventListener('click', resetAll);
 document.getElementById('resetLink').addEventListener('click', resetAll);
 document.getElementById('publishBtn').addEventListener('click', publishToFirebase);
 
 function resetAll(){
   records = [];
+  hazardRecords = [];
   hasLocalDraft = false;
   activeFilter = 'all';
   searchTerm = '';
@@ -738,6 +826,7 @@ function resetAll(){
   fileInput.value = '';
   const note = document.getElementById('publishedNote');
   if(note) note.remove();
+  document.getElementById('hazSection').style.display = 'none';
   document.getElementById('dash').classList.remove('show');
   updateAdminUI();
 }
