@@ -222,7 +222,7 @@
     <div class="topbar-row">
       <div>
         <p class="eyebrow">PTW DAILY CLASSIFIER</p>
-        <h1>고위험 일일작업허가 리스트</h1>
+        <h1>PTW List</h1>
       </div>
       <div class="date-badge">
         작업날짜<b id="todayLabel">—</b>
@@ -278,7 +278,6 @@
 
     <div id="hazSection" style="display:none;margin-top:34px;">
       <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 4px;">유해위험작업 List</h2>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">별도 양식으로 제출된 현장별 유해위험작업입니다 (엑셀 원본 컬럼 그대로 표시)</p>
       <table>
         <thead>
           <tr>
@@ -294,6 +293,9 @@
         </thead>
         <tbody id="hazTbody"></tbody>
       </table>
+      <div class="foot-note">
+        <span id="hazCountNote"></span>
+      </div>
     </div>
   </div>
 
@@ -787,6 +789,8 @@ function renderHazardTable(){
     return;
   }
   section.style.display = 'block';
+
+  document.getElementById('hazCountNote').textContent = `${rows.length}건 표시 중 (전체 ${hazardRecords.length}건)`;
 
   if(!rows.length){
     tbody.innerHTML = `<tr class="empty-row"><td colspan="8">조건에 맞는 항목이 없습니다.</td></tr>`;
