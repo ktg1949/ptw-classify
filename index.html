@@ -223,15 +223,22 @@
       <div>
         <p class="eyebrow">PTW DAILY CLASSIFIER</p>
         <h1>일일 안전작업허가 분류</h1>
-        <p class="subtitle">매일 추출되는 안전작업허가서 엑셀 3건을 병합해 위험작업 유형별로 자동 분류하고, 승인 대기 건과 PSM 설비 작업을 한눈에 확인합니다.</p>
       </div>
-      <div class="date-badge">오늘 날짜<b id="todayLabel">—</b></div>
+      <div class="date-badge">
+        오늘 날짜<b id="todayLabel">—</b>
+        <button class="btn" id="adminToggleBtn" style="margin-top:10px;width:100%;font-size:12px;padding:7px 10px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.3);">담당자 모드</button>
+      </div>
     </div>
   </header>
 
-  <div class="upload-zone" id="uploadZone">
+  <div class="upload-zone" id="lockedZone">
+    <h2>🔒 담당자 전용</h2>
+    <p>업로드·게시는 담당자만 할 수 있습니다. 위 "담당자 모드" 버튼으로 암호를 입력하세요.</p>
+  </div>
+
+  <div class="upload-zone" id="uploadZone" style="display:none;">
     <h2>엑셀 파일 업로드 (담당자용)</h2>
-    <p>발행시스템에서 받은 안전작업허가서 .xlsx 파일 3개를 선택하세요 (여러 개 동시 선택 가능)</p>
+    <p>발행시스템에서 받은 안전작업허가서 .xlsx 파일을 선택하세요 (1개 이상, 여러 개 동시 선택 가능)</p>
     <button class="btn btn-primary" id="pickBtn">파일 선택</button>
     <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
     <div class="file-list" id="fileList"></div>
@@ -243,8 +250,8 @@
 
     <div class="toolbar">
       <input class="search-box" id="searchBox" placeholder="작업명 · 발행자 · 부서 검색">
-      <button class="btn btn-primary" id="publishBtn">전체에 게시</button>
-      <button class="btn btn-ghost" id="reuploadBtn">파일 다시 업로드</button>
+      <button class="btn btn-primary" id="publishBtn" style="display:none;">전체에 게시</button>
+      <button class="btn btn-ghost" id="reuploadBtn" style="display:none;">파일 다시 업로드</button>
     </div>
 
     <div class="chip-row" id="chipRow"></div>
@@ -266,7 +273,7 @@
 
     <div class="foot-note">
       <span id="countNote"></span>
-      <button class="reset-link" id="resetLink">전체 초기화</button>
+      <button class="reset-link" id="resetLink" style="display:none;">전체 초기화</button>
     </div>
   </div>
 
@@ -310,7 +317,38 @@ const firebaseConfig = {
 };
 // 임의로 정한 비밀 문자열입니다. 원하시면 자유롭게 바꾸셔도 되지만,
 // 반드시 Firestore 보안 규칙(README 3번)에 있는 문자열과 동일해야 합니다.
-const ADMIN_KEY = "ptw-classify-2026";
+const ADMIN_KEY = "123456";
+
+// ===== 담당자 모드 (간단한 접근 제한) =====
+// 이 페이지 소스 코드를 볼 수 있는 사람은 암호를 알아낼 수 있으므로 완전한 보안은 아닙니다.
+// 팀원이 실수로 업로드/게시 버튼을 누르는 것을 막기 위한 용도입니다.
+let isAdmin = false;
+
+function updateAdminUI(){
+  document.getElementById('publishBtn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('reuploadBtn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('resetLink').style.display = isAdmin ? '' : 'none';
+  document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
+  // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
+  if(!document.getElementById('dash').classList.contains('show')){
+    document.getElementById('lockedZone').style.display = isAdmin ? 'none' : 'block';
+    document.getElementById('uploadZone').style.display = isAdmin ? 'block' : 'none';
+  }
+}
+
+document.getElementById('adminToggleBtn').addEventListener('click', ()=>{
+  if(isAdmin){ isAdmin = false; updateAdminUI(); return; }
+  const input = prompt('담당자 암호를 입력하세요');
+  if(input === null) return;
+  if(input === ADMIN_KEY){
+    isAdmin = true;
+    updateAdminUI();
+  } else {
+    alert('암호가 일치하지 않습니다.');
+  }
+});
+
+updateAdminUI();
 
 let db = null;
 try{
@@ -408,12 +446,30 @@ function handleFiles(fileArr){
       try{
         const wb = XLSX.read(evt.target.result, {type:'array'});
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+        const raw = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+
+        // 헤더 행이 1행이 아닐 수 있으므로(제목 행 등), 처음 10행 안에서 '발행번호'가 있는 행을 헤더로 인식
+        let headerIdx = raw.findIndex(row => row.some(cell => String(cell).trim() === '발행번호'));
+        if(headerIdx === -1) headerIdx = 0; // 못 찾으면 기존 방식(1행)으로 폴백
+
+        const headers = raw[headerIdx].map(h => String(h).trim());
+        const dataRows = raw.slice(headerIdx + 1);
+        const rows = dataRows
+          .filter(r => r.some(cell => String(cell).trim() !== ''))
+          .map(r => {
+            const obj = {};
+            headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
+            return obj;
+          });
+
+        let addedCount = 0;
         rows.forEach(r=>{
           const id = String(r['발행번호']||'').trim();
-          if(id) merged.set(id, r);
+          if(id){ merged.set(id, r); addedCount++; }
         });
-        chip.innerHTML = `<span>${file.name}</span><span class="ok">${rows.length}건 ✓</span>`;
+        chip.innerHTML = addedCount > 0
+          ? `<span>${file.name}</span><span class="ok">${addedCount}건 ✓</span>`
+          : `<span>${file.name}</span><span style="color:#c0433a">0건 인식 (헤더 확인 필요)</span>`;
       }catch(err){
         chip.innerHTML = `<span>${file.name}</span><span style="color:#c0433a">읽기 실패</span>`;
       }
@@ -439,6 +495,7 @@ function statusInfo(r){
 function renderDash(){
   document.getElementById('dash').classList.add('show');
   uploadZone.style.display = 'none';
+  document.getElementById('lockedZone').style.display = 'none';
   buildChips();
   renderStats();
   renderTable();
@@ -566,8 +623,10 @@ function resetAll(){
   document.getElementById('searchBox').value = '';
   fileListEl.innerHTML = '';
   fileInput.value = '';
+  const note = document.getElementById('publishedNote');
+  if(note) note.remove();
   document.getElementById('dash').classList.remove('show');
-  uploadZone.style.display = 'block';
+  updateAdminUI();
 }
 
 subscribeLive();
