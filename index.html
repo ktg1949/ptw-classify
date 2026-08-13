@@ -675,16 +675,17 @@ function buildChips(){
 }
 
 function renderStats(){
-  const total = records.length;
-  const done = records.filter(r=>statusInfo(r).cls==='done').length;
-  const pending = total - done;
+  const totalAll = records.length + hazardRecords.length;
+  const doneRecords = records.filter(r=>statusInfo(r).cls==='done').length;
+  const done = doneRecords + hazardRecords.length; // 유해위험 List는 전부 발행완료 취급
+  const pending = records.length - doneRecords;
   const fire = records.filter(r=>r['구분']==='화기작업').length;
   const psm = records.filter(r=>String(r['PSM설비']).trim().toUpperCase()==='Y').length;
   const depts = new Set(records.map(r=>r['발행부서'])).size;
 
   const cards = [
-    {n: total, l:'고위험 허가 건수'},
-    {n: done, l:'발행완료'},
+    {n: totalAll, l:'전체 (유해위험List 포함)'},
+    {n: done, l:'발행완료 (유해위험List 포함)'},
     {n: pending, l:'승인/작성 대기', pending:true},
     {n: fire, l:'화기작업'},
     {n: psm, l:'PSM 설비', psm:true},
