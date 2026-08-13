@@ -450,9 +450,9 @@ function handleFiles(fileArr){
     const reader = new FileReader();
     reader.onload = evt => {
       try{
-        const wb = XLSX.read(evt.target.result, {type:'array', cellDates:true});
+        const wb = XLSX.read(evt.target.result, {type:'array'});
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+        const raw = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:''});
 
         // 헤더 행이 1행이 아닐 수 있으므로(제목 행 등), 처음 10행 안에서 '발행번호'가 있는 행을 헤더로 인식
         let headerIdx = raw.findIndex(row => row.some(cell => String(cell).trim() === '발행번호'));
@@ -500,20 +500,24 @@ function statusInfo(r){
 }
 
 function toDateOnlyString(v){
+  const s = String(v||'').trim();
+  // 기본 형태: 엑셀에 표시된 그대로의 텍스트, 예: "2026-08-14" (타임존 변환 없이 그대로 사용 — 가장 안전함)
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return `${m[1]}. ${m[2].padStart(2,'0')}. ${m[3].padStart(2,'0')}.`;
+  m = s.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})/);
+  if(m) return `${m[1]}. ${m[2].padStart(2,'0')}. ${m[3].padStart(2,'0')}.`;
+
+  // 예전에 게시된 데이터 호환용 (Date 객체 / Firestore Timestamp / ISO 문자열)
   if(v instanceof Date && !isNaN(v)) return v.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
   if(v && typeof v.toDate === 'function'){
-    // Firestore Timestamp 객체 (JS Date를 게시하면 Firestore가 자체 Timestamp 타입으로 저장함)
     const d = v.toDate();
     if(!isNaN(d)) return d.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
   }
   if(typeof v === 'number'){
-    // 엑셀 날짜 일련번호 (cellDates 파싱이 안 된 경우 대비)
     const d = XLSX.SSF ? XLSX.SSF.parse_date_code(v) : null;
     if(d) return `${d.y}. ${String(d.m).padStart(2,'0')}. ${String(d.d).padStart(2,'0')}.`;
   }
-  const s = String(v||'').trim();
   if(/^\d{4}-\d{2}-\d{2}T/.test(s)){
-    // Firestore에서 불러온 경우 Date가 ISO 문자열로 직렬화되어 있음
     const parsed = new Date(s);
     if(!isNaN(parsed)) return parsed.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
   }
