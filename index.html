@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>고위험 일일작업허가 리스트</title>
+<title>일일고위험 작업 리스트</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -201,6 +201,12 @@
   .stamp.draft{color:var(--red);border-color:var(--red);background:var(--red-tint);}
 
   .empty-row td{text-align:center;color:var(--ink-soft);padding:40px 12px;font-size:13.5px;}
+  .del-btn{
+    background:none;border:1px solid var(--line);border-radius:6px;
+    color:var(--red);width:26px;height:26px;cursor:pointer;font-size:13px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .del-btn:hover{background:var(--red-tint);border-color:var(--red);}
 
   .foot-note{margin-top:14px;font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;}
   .reset-link{background:none;border:none;color:var(--navy-800);text-decoration:underline;cursor:pointer;font-size:12px;font-family:var(--font-body);padding:0;}
@@ -222,7 +228,7 @@
     <div class="topbar-row">
       <div>
         <p class="eyebrow">PTW DAILY CLASSIFIER</p>
-        <h1>PTW List</h1>
+        <h1>일일고위험 작업 리스트</h1>
       </div>
       <div class="date-badge">
         작업날짜<b id="todayLabel">—</b>
@@ -268,6 +274,7 @@
           <th data-sort="발행부서">발행부서</th>
           <th data-sort="운전부서">운전부서</th>
           <th data-sort="발행자">발행자</th>
+          <th id="delColHeader" style="display:none;"></th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -291,6 +298,7 @@
             <th>인력</th>
             <th>유해위험요소</th>
             <th>현장안전관리자</th>
+            <th id="hazDelColHeader" style="display:none;"></th>
           </tr>
         </thead>
         <tbody id="hazTbody"></tbody>
@@ -370,11 +378,16 @@ function updateAdminUI(){
   document.getElementById('publishBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('reuploadBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('resetLink').style.display = isAdmin ? '' : 'none';
+  document.getElementById('delColHeader').style.display = isAdmin ? '' : 'none';
+  document.getElementById('hazDelColHeader').style.display = isAdmin ? '' : 'none';
   document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
   // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
   if(!document.getElementById('dash').classList.contains('show')){
     document.getElementById('lockedZone').style.display = isAdmin ? 'none' : 'block';
     document.getElementById('uploadZone').style.display = isAdmin ? 'block' : 'none';
+  } else {
+    renderTable();
+    renderHazardTable();
   }
 }
 
@@ -545,6 +558,7 @@ function handleFiles(fileArr){
             if(!no && !company) return;
             const key = `${workDate}-${no}-${company}-${place}`;
             hazMerged.set(key, {
+              '_key': key,
               'No.': no,
               '업체명': company,
               '장소': place,
@@ -742,7 +756,7 @@ function renderTable(){
 
   const tbody = document.getElementById('tbody');
   if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">조건에 맞는 허가서가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?8:7}">조건에 맞는 허가서가 없습니다.</td></tr>`;
   } else {
     tbody.innerHTML = rows.map(r=>{
       const tags = classify(r);
@@ -757,6 +771,7 @@ function renderTable(){
         <td>${escapeHtml(r['발행부서']||'')}</td>
         <td>${escapeHtml(r['운전부서']||'')}</td>
         <td>${escapeHtml(r['발행자']||'')}</td>
+        ${isAdmin ? `<td><button class="del-btn" data-del-ptw="${escapeHtml(r['발행번호']||'')}" title="삭제">✕</button></td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -796,7 +811,7 @@ function renderHazardTable(){
   document.getElementById('hazCountNote').textContent = `${rows.length}건 표시 중 (전체 ${hazardRecords.length}건)`;
 
   if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">조건에 맞는 항목이 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 항목이 없습니다.</td></tr>`;
     return;
   }
 
@@ -814,6 +829,7 @@ function renderHazardTable(){
       <td class="mono">${escapeHtml(r['작업투입 인력']||'')}</td>
       <td>${tagHtml}<div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(hz)}</div></td>
       <td>${escapeHtml(r['현장안전관리자']||'')}</td>
+      ${isAdmin ? `<td><button class="del-btn" data-del-haz="${escapeHtml(r['_key']||'')}" title="삭제">✕</button></td>` : ''}
     </tr>`;
   }).join('');
 }
@@ -837,6 +853,26 @@ function resetAll(){
   document.getElementById('dash').classList.remove('show');
   updateAdminUI();
 }
+
+document.getElementById('tbody').addEventListener('click', e=>{
+  const btn = e.target.closest('[data-del-ptw]');
+  if(!btn || !isAdmin) return;
+  const id = btn.getAttribute('data-del-ptw');
+  if(!confirm(`발행번호 #${id} 항목을 목록에서 삭제할까요?`)) return;
+  records = records.filter(r => String(r['발행번호']) !== id);
+  hasLocalDraft = true;
+  renderDash();
+});
+
+document.getElementById('hazTbody').addEventListener('click', e=>{
+  const btn = e.target.closest('[data-del-haz]');
+  if(!btn || !isAdmin) return;
+  const key = btn.getAttribute('data-del-haz');
+  if(!confirm('이 유해위험작업 항목을 목록에서 삭제할까요?')) return;
+  hazardRecords = hazardRecords.filter(r => r['_key'] !== key);
+  hasLocalDraft = true;
+  renderDash();
+});
 
 subscribeLive();
 </script>
