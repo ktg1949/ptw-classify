@@ -255,7 +255,7 @@
     <div class="stat-row" id="statRow"></div>
 
     <div class="toolbar">
-      <input class="search-box" id="searchBox" placeholder="작업명 · 발행자 · 부서 검색">
+      <input class="search-box" id="searchBox" placeholder="작업명 · 작업위치 · 발행자 · 부서 검색">
       <button class="btn btn-primary" id="publishBtn" style="display:none;">전체에 게시</button>
       <button class="btn btn-ghost" id="reuploadBtn" style="display:none;">파일 다시 업로드</button>
     </div>
@@ -270,7 +270,8 @@
           <th data-sort="발행번호">발행번호</th>
           <th data-sort="발행상태">상태</th>
           <th data-sort="작업명">작업명</th>
-          <th data-sort="구분">구분/위험분류</th>
+          <th data-sort="작업위치">작업위치</th>
+          <th data-sort="구분">작업유형/위험분류</th>
           <th data-sort="발행부서">발행부서</th>
           <th data-sort="운전부서">운전부서</th>
           <th data-sort="발행자">발행자</th>
@@ -592,7 +593,11 @@ function handleFiles(fileArr){
 }
 
 function classify(r){
-  return HAZARD_DEFS.filter(h => h.test ? h.test(r) : String(r[h.key]).trim().toUpperCase()==='Y');
+  return HAZARD_DEFS.filter(h => {
+    if(h.test) return h.test(r);
+    // 컬럼명이 파일마다 조금씩 다를 수 있어(예: '밀폐' vs '밀폐공간출입'), 키워드가 포함된 컬럼을 찾아서 확인
+    return Object.keys(r).some(k => k.includes(h.key) && String(r[k]).trim().toUpperCase()==='Y');
+  });
 }
 
 function statusInfo(r){
@@ -740,7 +745,7 @@ function renderTable(){
 
   if(searchTerm){
     rows = rows.filter(r=>{
-      const hay = [r['작업명'],r['발행자'],r['발행부서'],r['운전부서'],r['발행번호']].join(' ').toLowerCase();
+      const hay = [r['작업명'],r['작업위치'],r['발행자'],r['발행부서'],r['운전부서'],r['발행번호']].join(' ').toLowerCase();
       return hay.includes(searchTerm);
     });
   }
@@ -756,7 +761,7 @@ function renderTable(){
 
   const tbody = document.getElementById('tbody');
   if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?8:7}">조건에 맞는 허가서가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 허가서가 없습니다.</td></tr>`;
   } else {
     tbody.innerHTML = rows.map(r=>{
       const tags = classify(r);
@@ -767,7 +772,8 @@ function renderTable(){
         <td class="mono">#${r['발행번호']||'—'}</td>
         <td><span class="stamp ${st.cls}">${st.label}</span></td>
         <td class="name">${escapeHtml(r['작업명']||'')}</td>
-        <td><div class="tag-wrap">${tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('')}</div></td>
+        <td>${escapeHtml(r['작업위치']||'')}</td>
+        <td><div class="tag-wrap"><span class="tag" style="background:${r['구분']==='화기작업'?'#fbe4e1':'#eef1f5'};color:${r['구분']==='화기작업'?'#c0433a':'#5b6b7f'};">${escapeHtml(r['구분']||'일반작업')}</span>${tags.filter(t=>t.key!=='구분_화기').map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('')}</div></td>
         <td>${escapeHtml(r['발행부서']||'')}</td>
         <td>${escapeHtml(r['운전부서']||'')}</td>
         <td>${escapeHtml(r['발행자']||'')}</td>
