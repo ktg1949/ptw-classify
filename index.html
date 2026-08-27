@@ -427,7 +427,11 @@ function subscribeLive(){
     const data = snap.data();
     if(data && Array.isArray(data.records) && data.records.length){
       records = data.records.filter(r => classify(r).length > 0);
-      hazardRecords = Array.isArray(data.hazardRecords) ? data.hazardRecords : [];
+      hazardRecords = (Array.isArray(data.hazardRecords) ? data.hazardRecords : []).filter(r=>{
+        const blank = v => String(v||'').replace(/[\u00A0\u200B\s]/g,'').length === 0;
+        return !(blank(r['업체명']) && blank(r['장소']) && blank(r['작업내용']) && blank(r['유해위험요소']));
+      });
+      hazardRecords = dedupeHazardAgainstPtw(records, hazardRecords);
       renderDash();
       showPublishedNote(data.savedAt);
     }
@@ -552,13 +556,14 @@ function handleFiles(fileArr){
               headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
               return obj;
             });
+          const normBlank = v => String(v||'').replace(/[\u00A0\u200B\s]/g,'').length === 0;
           rows.forEach(r=>{
             const no = String(r['No.']||r['No']||'').trim();
             const company = String(r['업체명']||'').trim();
             const place = String(r['장소']||'').trim();
             const content = String(r['작업내용']||'').trim();
             const hzText = String(r['유해위험요소']||'').trim();
-            if(!company && !place && !content && !hzText) return; // 번호만 있고 내용 없는 행은 제외
+            if(normBlank(company) && normBlank(place) && normBlank(content) && normBlank(hzText)) return; // 번호만 있고 내용 없는 행은 제외
             const key = `${workDate}-${no}-${company}-${place}`;
             hazMerged.set(key, {
               '_key': key,
@@ -585,7 +590,11 @@ function handleFiles(fileArr){
       loaded++;
       if(loaded === files.length){
         records = Array.from(merged.values()).filter(r => classify(r).length > 0);
-        hazardRecords = Array.from(hazMerged.values());
+        hazardRecords = Array.from(hazMerged.values()).filter(r=>{
+          const blank = v => String(v||'').replace(/[\u00A0\u200B\s]/g,'').length === 0;
+          return !(blank(r['업체명']) && blank(r['장소']) && blank(r['작업내용']) && blank(r['유해위험요소']));
+        });
+        hazardRecords = dedupeHazardAgainstPtw(records, hazardRecords);
         hasLocalDraft = true;
         renderDash();
       }
@@ -605,6 +614,15 @@ function classify(r){
 function statusInfo(r){
   const raw = String(r['발행상태']||'').trim();
   return STATUS_MAP[raw] || {cls:'draft', label: raw || '미확인'};
+}
+
+function normText(s){
+  return String(s||'').replace(/[\u00A0\u200B\s]/g,'').toLowerCase();
+}
+
+function dedupeHazardAgainstPtw(ptwRecords, hazRecords){
+  const ptwNames = new Set(ptwRecords.map(r => normText(r['작업명'])).filter(Boolean));
+  return hazRecords.filter(r => !ptwNames.has(normText(r['작업내용'])));
 }
 
 function toDateOnlyString(v){
