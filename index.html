@@ -556,7 +556,9 @@ function handleFiles(fileArr){
             const no = String(r['No.']||r['No']||'').trim();
             const company = String(r['업체명']||'').trim();
             const place = String(r['장소']||'').trim();
-            if(!no && !company) return;
+            const content = String(r['작업내용']||'').trim();
+            const hzText = String(r['유해위험요소']||'').trim();
+            if(!company && !place && !content && !hzText) return; // 번호만 있고 내용 없는 행은 제외
             const key = `${workDate}-${no}-${company}-${place}`;
             hazMerged.set(key, {
               '_key': key,
