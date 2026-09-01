@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
@@ -119,7 +120,7 @@
   .dash{display:none;}
   .dash.show{display:block;}
 
-  .stat-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px;}
+  .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
   .stat-card{
     background:#fff;border:1px solid var(--line);border-radius:12px;
     padding:14px 14px 12px;
@@ -142,6 +143,14 @@
   .search-box:focus{outline:none;border-color:var(--orange);}
 
   .chip-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px;}
+  .chip-row.tight{
+    flex-wrap:nowrap;gap:4px;
+  }
+  .chip-row.tight .chip{
+    flex:1 1 0;min-width:0;
+    padding:6px 6px;font-size:10.5px;gap:3px;
+    justify-content:center;white-space:nowrap;
+  }
   .chip{
     font-family:var(--font-mono);
     font-size:12px;font-weight:500;
@@ -208,6 +217,14 @@
   }
   .del-btn:hover{background:var(--red-tint);border-color:var(--red);}
 
+  .inline-edit{
+    width:64px;border:1px solid transparent;border-radius:5px;
+    background:transparent;font-family:var(--font-mono);font-size:12px;
+    padding:3px 5px;color:var(--ink);
+  }
+  .inline-edit:hover{border-color:var(--line);}
+  .inline-edit:focus{outline:none;border-color:var(--orange);background:#fff;}
+
   .foot-note{margin-top:14px;font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;}
   .reset-link{background:none;border:none;color:var(--navy-800);text-decoration:underline;cursor:pointer;font-size:12px;font-family:var(--font-body);padding:0;}
 
@@ -218,6 +235,8 @@
     tbody tr{padding:10px 12px;border-bottom:6px solid var(--steel-100);}
     td{padding:3px 0;}
     td.mono{white-space:normal;}
+    .chip-row.tight{flex-wrap:wrap;}
+    .chip-row.tight .chip{flex:0 0 auto;padding:6px 10px;font-size:11px;}
   }
 </style>
 </head>
@@ -243,10 +262,10 @@
   </div>
 
   <div class="upload-zone" id="uploadZone" style="display:none;">
-    <h2>엑셀 파일 업로드 (담당자용)</h2>
-    <p>발행시스템에서 받은 안전작업허가서 .xlsx 파일을 선택하세요 (1개 이상, 여러 개 동시 선택 가능)</p>
+    <h2>파일 업로드 (담당자용)</h2>
+    <p>안전작업허가서 엑셀(발전정비 list용)과 일일 작업 안전 소통 현황 PPT(실제작업 list용)를 함께 선택하세요. 둘 다 올려도 되고, 하나만 올려도 됩니다.</p>
     <button class="btn btn-primary" id="pickBtn">파일 선택</button>
-    <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.pptx" multiple>
     <div class="file-list" id="fileList"></div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-top:16px;">분류 후 <b>게시</b> 버튼을 누르면 Firebase에 저장되어, 이 페이지에 접속한 모든 사람 화면에 실시간으로 반영됩니다.</p>
   </div>
@@ -260,9 +279,30 @@
       <button class="btn btn-ghost" id="reuploadBtn" style="display:none;">파일 다시 업로드</button>
     </div>
 
-    <div class="chip-row" id="chipRow"></div>
+    <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 12px;">실제작업 list</h2>
+    <div class="chip-row" id="chipRowA"></div>
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="발행번호">발행번호</th>
+          <th data-sort="업체">업체</th>
+          <th data-sort="인원">인원</th>
+          <th data-sort="장소">장소</th>
+          <th data-sort="내용">내용</th>
+          <th data-sort="작업유형">작업유형</th>
+          <th data-sort="담당자">담당자</th>
+          <th data-sort="운전부서">운전부서</th>
+          <th id="delColHeaderA" style="display:none;"></th>
+        </tr>
+      </thead>
+      <tbody id="tbodyA"></tbody>
+    </table>
+    <div class="foot-note">
+      <span id="countNoteA"></span>
+    </div>
 
-    <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 12px;">PTW List</h2>
+    <h2 style="font-family:var(--font-display);font-size:16px;margin:34px 0 12px;">발전정비 list</h2>
+    <div class="chip-row tight" id="chipRow"></div>
 
     <table>
       <thead>
@@ -285,29 +325,6 @@
       <span id="countNote"></span>
       <button class="reset-link" id="resetLink" style="display:none;">전체 초기화</button>
     </div>
-
-    <div id="hazSection" style="display:none;margin-top:34px;">
-      <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 4px;">유해위험작업 List</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>No.</th>
-            <th>업체명</th>
-            <th>장소</th>
-            <th>실내/외</th>
-            <th>작업내용</th>
-            <th>인력</th>
-            <th>유해위험요소</th>
-            <th>현장안전관리자</th>
-            <th id="hazDelColHeader" style="display:none;"></th>
-          </tr>
-        </thead>
-        <tbody id="hazTbody"></tbody>
-      </table>
-      <div class="foot-note">
-        <span id="hazCountNote"></span>
-      </div>
-    </div>
   </div>
 
 </div>
@@ -325,7 +342,21 @@ const HAZARD_DEFS = [
   {key:'PSM설비', label:'PSM설비', cls:'psm'},
 ];
 
-// 유해위험작업 List는 Y/N 컬럼이 아니라 자유 텍스트(유해위험요소)라서, 키워드로 HAZARD_DEFS와 동일한 key에 매핑
+const STATUS_MAP = {
+  '발행완료': {cls:'done', label:'발행완료'},
+  'EES 승인중': {cls:'review', label:'승인중'},
+  '승인중': {cls:'review', label:'승인중'},
+  '작성중': {cls:'draft', label:'작성중'},
+};
+
+let records = [];      // 발전정비 list (엑셀 기반)
+let pptRecords = [];   // 실제작업 list (PPT 기반)
+let activeFilter = 'all';
+let activeGroup = '전체';
+let activeFilterA = 'all';
+let activeGroupA = '전체';
+
+// PPT의 작업유형은 Y/N 컬럼이 아니라 자유 텍스트(예: "고소, 중장비")라서 키워드로 매칭
 const HAZARD_KEYWORDS = {
   '구분_화기': '화기',
   '밀폐': '밀폐',
@@ -337,22 +368,22 @@ const HAZARD_KEYWORDS = {
   '잠수': '잠수',
   'PSM설비': 'PSM',
 };
-
-function classifyHazardText(text){
-  const hz = String(text||'');
-  return HAZARD_DEFS.filter(h => hz.includes(HAZARD_KEYWORDS[h.key]));
+function classifyFreeText(text){
+  const t = String(text||'');
+  return HAZARD_DEFS.filter(h => t.includes(HAZARD_KEYWORDS[h.key]));
 }
 
-const STATUS_MAP = {
-  '발행완료': {cls:'done', label:'발행완료'},
-  'EES 승인중': {cls:'review', label:'승인중'},
-  '승인중': {cls:'review', label:'승인중'},
-  '작성중': {cls:'draft', label:'작성중'},
-};
-
-let records = [];      // merged, deduped
-let hazardRecords = []; // 유해위험작업 List (원본 컬럼 그대로)
-let activeFilter = 'all';
+// 운전부서 원본 명칭(예: "탈황설비운전 1과", "KEPS 연료운영팀")을 상위 5개 그룹으로 매핑.
+// 사업장마다 부서명이 다를 수 있어 키워드 기반으로 분류합니다 — 실제와 다르면 알려주세요, 매핑을 조정하겠습니다.
+const OPS_GROUPS = ['CCR','CHS','EP/ASH','FGD','수처리'];
+function mapOpsGroup(dept){
+  const d = String(dept||'');
+  if(/탈황|FGD/i.test(d)) return 'FGD';
+  if(/회처리|EP\/?ASH|애쉬|애시/i.test(d)) return 'EP/ASH';
+  if(/수처리|폐수|하이포|HYPO/i.test(d)) return '수처리';
+  if(/연료|하역|저탄|CHS/i.test(d)) return 'CHS';
+  return 'CCR';
+}
 let searchTerm = '';
 let sortKey = '발행번호';
 let sortDir = -1;
@@ -380,7 +411,7 @@ function updateAdminUI(){
   document.getElementById('reuploadBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('resetLink').style.display = isAdmin ? '' : 'none';
   document.getElementById('delColHeader').style.display = isAdmin ? '' : 'none';
-  document.getElementById('hazDelColHeader').style.display = isAdmin ? '' : 'none';
+  document.getElementById('delColHeaderA').style.display = isAdmin ? '' : 'none';
   document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
   // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
   if(!document.getElementById('dash').classList.contains('show')){
@@ -388,7 +419,7 @@ function updateAdminUI(){
     document.getElementById('uploadZone').style.display = isAdmin ? 'block' : 'none';
   } else {
     renderTable();
-    renderHazardTable();
+    renderTableA();
   }
 }
 
@@ -425,13 +456,11 @@ function subscribeLive(){
     if(hasLocalDraft) return; // 로컬에 아직 게시 안 한 업로드가 있으면 무시
     if(!snap.exists) return;
     const data = snap.data();
-    if(data && Array.isArray(data.records) && data.records.length){
-      records = data.records.filter(r => classify(r).length > 0);
-      hazardRecords = (Array.isArray(data.hazardRecords) ? data.hazardRecords : []).filter(r=>{
-        const blank = v => String(v||'').replace(/[\u00A0\u200B\s]/g,'').length === 0;
-        return !(blank(r['업체명']) && blank(r['장소']) && blank(r['작업내용']) && blank(r['유해위험요소']));
-      });
-      hazardRecords = dedupeHazardAgainstPtw(records, hazardRecords);
+    if(!data) return;
+    const hasAny = (Array.isArray(data.records) && data.records.length) || (Array.isArray(data.pptRecords) && data.pptRecords.length);
+    if(hasAny){
+      records = Array.isArray(data.records) ? data.records : [];
+      pptRecords = Array.isArray(data.pptRecords) ? data.pptRecords : [];
       renderDash();
       showPublishedNote(data.savedAt);
     }
@@ -464,7 +493,7 @@ async function publishToFirebase(){
     await DOC_REF().set({
       savedAt: new Date().toISOString(),
       records,
-      hazardRecords,
+      pptRecords,
       adminKey: ADMIN_KEY,
     });
     btn.textContent = '게시 완료 ✓';
@@ -495,39 +524,118 @@ pickBtn.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
-function handleFiles(fileArr){
-  const files = Array.from(fileArr).filter(f=>/\.xlsx?$/i.test(f.name));
+function readArrayBuffer(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = evt => resolve(evt.target.result);
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function decodeXmlEntities(s){
+  return String(s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+}
+
+function extractSlideCellText(cellXml){
+  const paras = cellXml.match(/<a:p[ >][\s\S]*?<\/a:p>/g) || [];
+  const paraTexts = paras.map(p=>{
+    const runs = p.match(/<a:t>([\s\S]*?)<\/a:t>/g) || [];
+    return runs.map(r=>decodeXmlEntities(r.replace(/<a:t>|<\/a:t>/g,''))).join('');
+  }).filter(t=>t.length);
+  return paraTexts.join(' ').trim();
+}
+
+function extractSlideTable(xml){
+  const rowChunks = xml.split(/<a:tr[ >]/).slice(1);
+  return rowChunks.map(rowXml=>{
+    const cellChunks = rowXml.split(/<a:tc[ >]/).slice(1);
+    return cellChunks.map(extractSlideCellText);
+  });
+}
+
+function extractSlideGroup(titleText){
+  const m = String(titleText||'').match(/\(([^)]+)\)/);
+  const code = m ? m[1] : '';
+  if(code.startsWith('수처리')) return '수처리';
+  if(code.startsWith('FGD')) return 'FGD';
+  if(code.startsWith('EP')) return 'EP/ASH';
+  if(code.startsWith('CHS')) return 'CHS';
+  if(code.startsWith('CCR')) return 'CCR';
+  return 'CCR';
+}
+
+async function parsePptxFile(file){
+  const buf = await readArrayBuffer(file);
+  const zip = await JSZip.loadAsync(buf);
+  const slideFiles = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a,b)=> parseInt(a.match(/slide(\d+)/)[1]) - parseInt(b.match(/slide(\d+)/)[1]));
+
+  const out = [];
+  for(const f of slideFiles){
+    const xml = await zip.files[f].async('string');
+    const table = extractSlideTable(xml);
+    if(!table.length) continue;
+    const title = table[0][0] || '';
+    const group = extractSlideGroup(title);
+    const headerRowIdx = table.findIndex(row => row[1] && row[1].trim()==='PTW');
+    if(headerRowIdx === -1) continue;
+    const headers = table[headerRowIdx];
+    const nameColIdx = headers.findIndex(h=>h.trim().startsWith('이름'));
+    table.slice(headerRowIdx+1).forEach(row=>{
+      const ptw = (row[1]||'').trim();
+      if(!ptw) return; // 발행번호 없는 빈 행 제외
+      const nameContact = (row[nameColIdx]||'').trim();
+      const spaceIdx = nameContact.indexOf(' ');
+      const name = spaceIdx>-1 ? nameContact.slice(0,spaceIdx) : nameContact;
+      const contact = spaceIdx>-1 ? nameContact.slice(spaceIdx+1).trim() : '';
+      out.push({
+        '발행번호': ptw,
+        '업체': (row[2]||'').trim(),
+        '인원': (row[3]||'').trim(),
+        '장소': (row[4]||'').trim(),
+        '내용': (row[5]||'').trim(),
+        '작업유형': (row[6]||'').trim(),
+        '담당자': name,
+        '연락처': contact,
+        '운전부서': group,
+      });
+    });
+  }
+  return out;
+}
+
+async function handleFiles(fileArr){
+  const files = Array.from(fileArr).filter(f=>/\.(xlsx|xls|pptx)$/i.test(f.name));
   if(!files.length) return;
   fileListEl.innerHTML = '';
-  let merged = new Map();    // PTW 발행번호 -> row
-  let hazMerged = new Map(); // 유해위험작업 List -> row (원본 컬럼 그대로 보관)
-  let loaded = 0;
+  const merged = new Map();       // 발전정비 list (엑셀) — 발행번호 -> row
+  const pptMerged = new Map();    // 실제작업 list (PPT) — 발행번호 -> row
 
-  files.sort((a,b)=> a.name.localeCompare(b.name)); // filenames carry timestamp, so this orders oldest->newest
+  files.sort((a,b)=> a.name.localeCompare(b.name));
 
-  files.forEach(file=>{
+  await Promise.all(files.map(async file=>{
     const chip = document.createElement('div');
     chip.className = 'file-chip';
     chip.innerHTML = `<span>${file.name}</span><span>불러오는 중…</span>`;
     fileListEl.appendChild(chip);
 
-    const reader = new FileReader();
-    reader.onload = evt => {
-      try{
-        const wb = XLSX.read(evt.target.result, {type:'array'});
+    try{
+      if(/\.pptx$/i.test(file.name)){
+        const rows = await parsePptxFile(file);
+        rows.forEach(r => pptMerged.set(r['발행번호'], r));
+        chip.innerHTML = rows.length > 0
+          ? `<span>${file.name}</span><span class="ok">${rows.length}건 ✓ (작업신고)</span>`
+          : `<span>${file.name}</span><span style="color:#c0433a">0건 인식 (양식 확인 필요)</span>`;
+      } else {
+        const buf = await readArrayBuffer(file);
+        const wb = XLSX.read(buf, {type:'array'});
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:''});
-
         const ptwHeaderIdx = raw.findIndex(row => row.some(cell => String(cell).trim() === '발행번호'));
-        const hazHeaderIdx = raw.findIndex(row =>
-          row.some(cell => String(cell).trim() === '업체명') &&
-          row.some(cell => String(cell).trim() === '유해위험요소')
-        );
-
         let addedCount = 0;
-
         if(ptwHeaderIdx !== -1){
-          // ===== 안전작업허가서(PTW) 양식: 발행번호 기준 =====
           const headers = raw[ptwHeaderIdx].map(h => String(h).trim());
           const rows = raw.slice(ptwHeaderIdx + 1)
             .filter(r => r.some(cell => String(cell).trim() !== ''))
@@ -540,67 +648,28 @@ function handleFiles(fileArr){
             const id = String(r['발행번호']||'').trim();
             if(id){ merged.set(id, r); addedCount++; }
           });
-        } else if(hazHeaderIdx !== -1){
-          // ===== 유해위험작업 List 양식: 원본 컬럼 그대로 별도 표에 보관 =====
-          let workDate = '';
-          for(let i=0; i<hazHeaderIdx; i++){
-            const line = raw[i].join(' ');
-            const m = line.match(/(\d{4})[-.](\d{1,2})[-.](\d{1,2})/);
-            if(m){ workDate = `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`; break; }
-          }
-          const headers = raw[hazHeaderIdx].map(h => String(h).trim());
-          const rows = raw.slice(hazHeaderIdx + 1)
-            .filter(r => r.some(cell => String(cell).trim() !== ''))
-            .map(r => {
-              const obj = {};
-              headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
-              return obj;
-            });
-          const normBlank = v => String(v||'').replace(/[\u00A0\u200B\s]/g,'').length === 0;
-          rows.forEach(r=>{
-            const no = String(r['No.']||r['No']||'').trim();
-            const company = String(r['업체명']||'').trim();
-            const place = String(r['장소']||'').trim();
-            const content = String(r['작업내용']||'').trim();
-            const hzText = String(r['유해위험요소']||'').trim();
-            if(normBlank(company) && normBlank(place) && normBlank(content) && normBlank(hzText)) return; // 번호만 있고 내용 없는 행은 제외
-            const key = `${workDate}-${no}-${company}-${place}`;
-            hazMerged.set(key, {
-              '_key': key,
-              'No.': no,
-              '업체명': company,
-              '장소': place,
-              '실내/외': String(r['실내/외']||'').trim(),
-              '작업내용': String(r['작업내용']||'').trim(),
-              '작업투입 인력': String(r['작업투입 인력']||'').trim(),
-              '유해위험요소': String(r['유해위험요소']||'').trim(),
-              '현장안전관리자': String(r['현장안전관리자']||'').trim(),
-              '작업날짜': workDate,
-            });
-            addedCount++;
-          });
         }
-
         chip.innerHTML = addedCount > 0
-          ? `<span>${file.name}</span><span class="ok">${addedCount}건 ✓</span>`
+          ? `<span>${file.name}</span><span class="ok">${addedCount}건 ✓ (발전정비)</span>`
           : `<span>${file.name}</span><span style="color:#c0433a">0건 인식 (헤더 확인 필요)</span>`;
-      }catch(err){
-        chip.innerHTML = `<span>${file.name}</span><span style="color:#c0433a">읽기 실패</span>`;
       }
-      loaded++;
-      if(loaded === files.length){
-        records = Array.from(merged.values()).filter(r => classify(r).length > 0);
-        hazardRecords = Array.from(hazMerged.values()).filter(r=>{
-          const blank = v => String(v||'').replace(/[\u00A0\u200B\s]/g,'').length === 0;
-          return !(blank(r['업체명']) && blank(r['장소']) && blank(r['작업내용']) && blank(r['유해위험요소']));
-        });
-        hazardRecords = dedupeHazardAgainstPtw(records, hazardRecords);
-        hasLocalDraft = true;
-        renderDash();
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  });
+    }catch(err){
+      console.error(err);
+      chip.innerHTML = `<span>${file.name}</span><span style="color:#c0433a">읽기 실패</span>`;
+    }
+  }));
+
+  const hasXlsxFile = files.some(f=>/\.(xlsx|xls)$/i.test(f.name));
+  const hasPptxFile = files.some(f=>/\.pptx$/i.test(f.name));
+
+  if(hasXlsxFile){
+    records = Array.from(merged.values());
+  }
+  if(hasPptxFile){
+    pptRecords = Array.from(pptMerged.values());
+  }
+  hasLocalDraft = true;
+  renderDash();
 }
 
 function classify(r){
@@ -614,15 +683,6 @@ function classify(r){
 function statusInfo(r){
   const raw = String(r['발행상태']||'').trim();
   return STATUS_MAP[raw] || {cls:'draft', label: raw || '미확인'};
-}
-
-function normText(s){
-  return String(s||'').replace(/[\u00A0\u200B\s]/g,'').toLowerCase();
-}
-
-function dedupeHazardAgainstPtw(ptwRecords, hazRecords){
-  const ptwNames = new Set(ptwRecords.map(r => normText(r['작업명'])).filter(Boolean));
-  return hazRecords.filter(r => !ptwNames.has(normText(r['작업내용'])));
 }
 
 function toDateOnlyString(v){
@@ -669,10 +729,11 @@ function renderDash(){
   document.getElementById('dash').classList.add('show');
   uploadZone.style.display = 'none';
   document.getElementById('lockedZone').style.display = 'none';
+  buildChipsA();
+  renderTableA();
   buildChips();
   renderStats();
   renderTable();
-  renderHazardTable();
   updateWorkDateLabel();
   if(hasLocalDraft) showDraftNote();
 }
@@ -691,50 +752,107 @@ function showDraftNote(){
   note.innerHTML = `<span>⚠ 아직 게시되지 않은 미리보기입니다. "전체에 게시"를 눌러야 다른 사람에게도 반영됩니다.</span>`;
 }
 
+// ===== 실제작업 list (PPT 기반) =====
+
+function buildChipsA(){
+  const counts = {all: pptRecords.length};
+  HAZARD_DEFS.forEach(h => counts[h.key] = pptRecords.filter(r=>classifyFreeText(r['작업유형']).some(x=>x.key===h.key)).length);
+  counts['general'] = pptRecords.filter(r=>classifyFreeText(r['작업유형']).length === 0).length;
+  const chipRow = document.getElementById('chipRowA');
+  chipRow.innerHTML = '';
+  const defs = [{key:'all', label:'전체'}, {key:'general', label:'일반작업'}, ...HAZARD_DEFS.map(h=>({key:h.key, label:h.label}))];
+  defs.forEach(d=>{
+    const el = document.createElement('div');
+    el.className = 'chip' + (activeFilterA===d.key ? ' active':'');
+    el.innerHTML = `${d.label} <span class="cnt">${counts[d.key]||0}</span>`;
+    el.onclick = ()=>{ activeFilterA = d.key; buildChipsA(); renderTableA(); };
+    chipRow.appendChild(el);
+  });
+}
+
+function renderTableA(){
+  let rows = pptRecords.slice();
+  if(activeFilterA === 'general') rows = rows.filter(r => classifyFreeText(r['작업유형']).length === 0);
+  else if(activeFilterA !== 'all') rows = rows.filter(r => classifyFreeText(r['작업유형']).some(h=>h.key===activeFilterA));
+  if(searchTerm){
+    rows = rows.filter(r=>{
+      const hay = [r['내용'],r['장소'],r['담당자'],r['업체'],r['운전부서'],r['발행번호']].join(' ').toLowerCase();
+      return hay.includes(searchTerm);
+    });
+  }
+
+  rows.sort((a,b)=>{
+    let av = a[sortKey], bv = b[sortKey];
+    if(sortKey==='발행번호'){ av = Number(av)||0; bv = Number(bv)||0; }
+    else { av = String(av||''); bv = String(bv||''); }
+    if(av < bv) return -1*sortDir;
+    if(av > bv) return 1*sortDir;
+    return 0;
+  });
+
+  const tbody = document.getElementById('tbodyA');
+  if(!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 항목이 없습니다.</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map(r=>{
+      const tags = classifyFreeText(r['작업유형']);
+      const id = escapeHtml(r['발행번호']||'');
+      return `
+      <tr>
+        <td class="mono">#${id||'—'}</td>
+        <td>${escapeHtml(r['업체']||'')}</td>
+        <td class="mono">${escapeHtml(r['인원']||'')}</td>
+        <td>${escapeHtml(r['장소']||'')}</td>
+        <td class="name">${escapeHtml(r['내용']||'')}</td>
+        <td>
+          ${isAdmin ? `<input class="inline-edit" style="width:100px;" data-field-a="작업유형" data-id="${id}" value="${escapeHtml(r['작업유형']||'')}" placeholder="예: 화기, 고소">` : ''}
+          <div class="tag-wrap" style="margin-top:${isAdmin?'4px':'0'};">${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : (isAdmin ? '' : escapeHtml(r['작업유형']||''))}</div>
+        </td>
+        <td>${escapeHtml(r['담당자']||'')}</td>
+        <td>${escapeHtml(r['운전부서']||'')}</td>
+        ${isAdmin ? `<td><button class="del-btn" data-del-a="${id}" title="삭제">✕</button></td>` : ''}
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('countNoteA').textContent = `${rows.length}건 표시 중 (전체 ${pptRecords.length}건)`;
+}
+
 function buildChips(){
-  const counts = {all: records.length + hazardRecords.length};
-  HAZARD_DEFS.forEach(h => counts[h.key] =
-    records.filter(r=>classify(r).some(x=>x.key===h.key)).length +
-    hazardRecords.filter(r=>classifyHazardText(r['유해위험요소']).some(x=>x.key===h.key)).length
-  );
+  const counts = {all: records.length};
+  HAZARD_DEFS.forEach(h => counts[h.key] = records.filter(r=>classify(r).some(x=>x.key===h.key)).length);
   counts['pending'] = records.filter(r=> statusInfo(r).cls !== 'done').length;
+  counts['general'] = records.filter(r=> classify(r).length === 0).length;
 
   const chipRow = document.getElementById('chipRow');
   chipRow.innerHTML = '';
   const defs = [
     {key:'all', label:'전체'},
     {key:'pending', label:'승인대기'},
+    {key:'general', label:'일반작업'},
     ...HAZARD_DEFS.map(h=>({key:h.key, label:h.label})),
   ];
   defs.forEach(d=>{
     const el = document.createElement('div');
     el.className = 'chip' + (activeFilter===d.key ? ' active':'');
     el.innerHTML = `${d.label} <span class="cnt">${counts[d.key]||0}</span>`;
-    el.onclick = ()=>{ activeFilter = d.key; buildChips(); renderTable(); renderHazardTable(); };
+    el.onclick = ()=>{ activeFilter = d.key; buildChips(); renderTable(); };
     chipRow.appendChild(el);
   });
 }
 
 function renderStats(){
-  const totalAll = records.length + hazardRecords.length;
-  const doneRecords = records.filter(r=>statusInfo(r).cls==='done').length;
-  const done = doneRecords + hazardRecords.length; // 유해위험 List는 전부 발행완료 취급
-  const pending = records.length - doneRecords;
-  const fire = records.filter(r=>r['구분']==='화기작업').length;
-  const psm = records.filter(r=>String(r['PSM설비']).trim().toUpperCase()==='Y').length;
-  const depts = new Set(records.map(r=>r['발행부서'])).size;
+  const totalAll = pptRecords.length;
+  const highRisk = pptRecords.filter(r=>classifyFreeText(r['작업유형']).length > 0).length;
+  const general = totalAll - highRisk;
 
   const cards = [
-    {n: totalAll, l:'전체 (유해위험List 포함)'},
-    {n: done, l:'발행완료 (유해위험List 포함)'},
-    {n: pending, l:'승인/작성 대기', pending:true},
-    {n: fire, l:'화기작업'},
-    {n: psm, l:'PSM 설비', psm:true},
-    {n: depts, l:'발행부서 수'},
+    {n: totalAll, l:'실제작업 건수'},
+    {n: highRisk, l:'고위험작업'},
+    {n: general, l:'일반작업'},
   ];
   const row = document.getElementById('statRow');
   row.innerHTML = cards.map(c=>`
-    <div class="stat-card ${c.pending?'pending':''} ${c.psm?'psm':''}">
+    <div class="stat-card">
       <div class="n">${c.n}</div>
       <div class="l">${c.l}</div>
     </div>`).join('');
@@ -743,14 +861,15 @@ function renderStats(){
 document.getElementById('searchBox').addEventListener('input', e=>{
   searchTerm = e.target.value.trim().toLowerCase();
   renderTable();
-  renderHazardTable();
+  renderTableA();
 });
 
 document.querySelectorAll('th[data-sort]').forEach(th=>{
   th.addEventListener('click', ()=>{
     const key = th.dataset.sort;
+    const isTableA = !!th.closest('table').querySelector('#tbodyA');
     if(sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
-    renderTable();
+    if(isTableA) renderTableA(); else renderTable();
   });
 });
 
@@ -759,6 +878,8 @@ function renderTable(){
 
   if(activeFilter === 'pending'){
     rows = rows.filter(r=>statusInfo(r).cls !== 'done');
+  } else if(activeFilter === 'general'){
+    rows = rows.filter(r=>classify(r).length === 0);
   } else if(activeFilter !== 'all'){
     rows = rows.filter(r=>classify(r).some(h=>h.key===activeFilter));
   }
@@ -787,17 +908,18 @@ function renderTable(){
       const tags = classify(r);
       const st = statusInfo(r);
       const isPsm = tags.some(t=>t.key==='PSM설비');
+      const id = escapeHtml(r['발행번호']||'');
       return `
       <tr class="${isPsm?'psm-row':''}">
-        <td class="mono">#${r['발행번호']||'—'}</td>
+        <td class="mono">#${id||'—'}</td>
         <td><span class="stamp ${st.cls}">${st.label}</span></td>
         <td class="name">${escapeHtml(r['작업명']||'')}</td>
         <td>${escapeHtml(r['작업위치']||'')}</td>
-        <td><div class="tag-wrap">${tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('')}</div></td>
+        <td><div class="tag-wrap">${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : '<span class="tag" style="background:#eef1f5;color:#5b6b7f">일반</span>'}</div></td>
         <td>${escapeHtml(r['발행부서']||'')}</td>
         <td>${escapeHtml(r['운전부서']||'')}</td>
         <td>${escapeHtml(r['발행자']||'')}</td>
-        ${isAdmin ? `<td><button class="del-btn" data-del-ptw="${escapeHtml(r['발행번호']||'')}" title="삭제">✕</button></td>` : ''}
+        ${isAdmin ? `<td><button class="del-btn" data-del-ptw="${id}" title="삭제">✕</button></td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -809,73 +931,24 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-function renderHazardTable(){
-  const section = document.getElementById('hazSection');
-  const tbody = document.getElementById('hazTbody');
-
-  let rows = hazardRecords.slice();
-
-  if(activeFilter === 'pending'){
-    rows = []; // 유해위험작업 List에는 승인대기 개념이 없음
-  } else if(activeFilter !== 'all'){
-    rows = rows.filter(r => classifyHazardText(r['유해위험요소']).some(h=>h.key===activeFilter));
-  }
-
-  if(searchTerm){
-    rows = rows.filter(r=>{
-      const hay = [r['작업내용'],r['업체명'],r['장소'],r['현장안전관리자'],r['No.']].join(' ').toLowerCase();
-      return hay.includes(searchTerm);
-    });
-  }
-
-  if(!hazardRecords.length){
-    section.style.display = 'none';
-    return;
-  }
-  section.style.display = 'block';
-
-  document.getElementById('hazCountNote').textContent = `${rows.length}건 표시 중 (전체 ${hazardRecords.length}건)`;
-
-  if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 항목이 없습니다.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = rows.map(r=>{
-    const hz = String(r['유해위험요소']||'');
-    const tags = classifyHazardText(hz);
-    const tagHtml = tags.map(t=>`<span class="tag ${t.cls}" style="margin-right:3px;">${t.label.replace('작업','').replace('공간','').replace('설비','')}</span>`).join('');
-    return `
-    <tr>
-      <td class="mono">${escapeHtml(r['No.']||'')}</td>
-      <td>${escapeHtml(r['업체명']||'')}</td>
-      <td>${escapeHtml(r['장소']||'')}</td>
-      <td>${escapeHtml(r['실내/외']||'')}</td>
-      <td class="name">${escapeHtml(r['작업내용']||'')}</td>
-      <td class="mono">${escapeHtml(r['작업투입 인력']||'')}</td>
-      <td>${tagHtml}<div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(hz)}</div></td>
-      <td>${escapeHtml(r['현장안전관리자']||'')}</td>
-      ${isAdmin ? `<td><button class="del-btn" data-del-haz="${escapeHtml(r['_key']||'')}" title="삭제">✕</button></td>` : ''}
-    </tr>`;
-  }).join('');
-}
-
 document.getElementById('reuploadBtn').addEventListener('click', resetAll);
 document.getElementById('resetLink').addEventListener('click', resetAll);
 document.getElementById('publishBtn').addEventListener('click', publishToFirebase);
 
 function resetAll(){
   records = [];
-  hazardRecords = [];
+  pptRecords = [];
   hasLocalDraft = false;
   activeFilter = 'all';
+  activeGroup = '전체';
+  activeFilterA = 'all';
+  activeGroupA = '전체';
   searchTerm = '';
   document.getElementById('searchBox').value = '';
   fileListEl.innerHTML = '';
   fileInput.value = '';
   const note = document.getElementById('publishedNote');
   if(note) note.remove();
-  document.getElementById('hazSection').style.display = 'none';
   document.getElementById('dash').classList.remove('show');
   updateAdminUI();
 }
@@ -890,14 +963,42 @@ document.getElementById('tbody').addEventListener('click', e=>{
   renderDash();
 });
 
-document.getElementById('hazTbody').addEventListener('click', e=>{
-  const btn = e.target.closest('[data-del-haz]');
+document.getElementById('tbody').addEventListener('input', e=>{
+  const input = e.target.closest('[data-field-ptw]');
+  if(!input || !isAdmin) return;
+  const id = input.getAttribute('data-id');
+  const field = input.getAttribute('data-field-ptw');
+  const rec = records.find(r => String(r['발행번호']) === id);
+  if(rec){
+    rec[field] = input.value;
+    hasLocalDraft = true;
+    showDraftNote(); // 표 전체를 다시 그리지 않고 배너만 갱신 (입력 포커스 유지)
+  }
+});
+
+document.getElementById('tbodyA').addEventListener('click', e=>{
+  const btn = e.target.closest('[data-del-a]');
   if(!btn || !isAdmin) return;
-  const key = btn.getAttribute('data-del-haz');
-  if(!confirm('이 유해위험작업 항목을 목록에서 삭제할까요?')) return;
-  hazardRecords = hazardRecords.filter(r => r['_key'] !== key);
+  const id = btn.getAttribute('data-del-a');
+  if(!confirm(`발행번호 #${id} 항목을 목록에서 삭제할까요?`)) return;
+  pptRecords = pptRecords.filter(r => String(r['발행번호']) !== id);
   hasLocalDraft = true;
   renderDash();
+});
+
+document.getElementById('tbodyA').addEventListener('change', e=>{
+  const input = e.target.closest('[data-field-a]');
+  if(!input || !isAdmin) return;
+  const id = input.getAttribute('data-id');
+  const field = input.getAttribute('data-field-a');
+  const rec = pptRecords.find(r => String(r['발행번호']) === id);
+  if(rec){
+    rec[field] = input.value;
+    hasLocalDraft = true;
+    buildChipsA();   // 작업유형이 바뀌면 상단 위험분류 칩 숫자도 다시 계산
+    renderTableA();  // 태그 미리보기도 새로 반영
+    showDraftNote();
+  }
 });
 
 subscribeLive();
