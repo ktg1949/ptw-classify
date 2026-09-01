@@ -725,7 +725,7 @@ function updateWorkDateLabel(){
   if(!keys.length){ label.textContent = '—'; return; }
   keys.sort((a,b)=> counts[b]-counts[a]);
   const top = keys[0];
-  label.textContent = keys.length > 1 ? `${top} 외` : top;
+  label.textContent = top;
 }
 
 function renderDash(){
