@@ -804,10 +804,7 @@ function renderTableA(){
         <td class="mono">${escapeHtml(r['인원']||'')}</td>
         <td>${escapeHtml(r['장소']||'')}</td>
         <td class="name">${escapeHtml(r['내용']||'')}</td>
-        <td>
-          ${isAdmin ? `<input class="inline-edit" style="width:100px;" data-field-a="작업유형" data-id="${id}" value="${escapeHtml(r['작업유형']||'')}" placeholder="예: 화기, 고소">` : ''}
-          <div class="tag-wrap" style="margin-top:${isAdmin?'4px':'0'};">${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : (isAdmin ? '' : escapeHtml(r['작업유형']||''))}</div>
-        </td>
+        <td><div class="tag-wrap"${isAdmin ? ` data-edit-a="${id}" style="cursor:pointer;" title="더블클릭하여 수정"` : ''}>${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : '<span class="tag" style="background:#eef1f5;color:#5b6b7f">일반</span>'}</div></td>
         <td>${escapeHtml(r['담당자']||'')}</td>
         <td>${escapeHtml(r['운전부서']||'')}</td>
         ${isAdmin ? `<td><button class="del-btn" data-del-a="${id}" title="삭제">✕</button></td>` : ''}
@@ -986,19 +983,19 @@ document.getElementById('tbodyA').addEventListener('click', e=>{
   renderDash();
 });
 
-document.getElementById('tbodyA').addEventListener('change', e=>{
-  const input = e.target.closest('[data-field-a]');
-  if(!input || !isAdmin) return;
-  const id = input.getAttribute('data-id');
-  const field = input.getAttribute('data-field-a');
+document.getElementById('tbodyA').addEventListener('dblclick', e=>{
+  const cell = e.target.closest('[data-edit-a]');
+  if(!cell || !isAdmin) return;
+  const id = cell.getAttribute('data-edit-a');
   const rec = pptRecords.find(r => String(r['발행번호']) === id);
-  if(rec){
-    rec[field] = input.value;
-    hasLocalDraft = true;
-    buildChipsA();   // 작업유형이 바뀌면 상단 위험분류 칩 숫자도 다시 계산
-    renderTableA();  // 태그 미리보기도 새로 반영
-    showDraftNote();
-  }
+  if(!rec) return;
+  const next = prompt('작업유형 수정 (예: 화기, 고소 — 쉼표로 여러 개 입력 가능)', rec['작업유형']||'');
+  if(next === null) return; // 취소
+  rec['작업유형'] = next;
+  hasLocalDraft = true;
+  buildChipsA();   // 작업유형이 바뀌면 상단 위험분류 칩 숫자도 다시 계산
+  renderTableA();  // 태그도 새로 반영
+  showDraftNote();
 });
 
 subscribeLive();
