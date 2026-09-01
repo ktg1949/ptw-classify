@@ -309,7 +309,10 @@
     </div>
 
     <div id="ptwSection" style="display:none;">
-      <h2 style="font-family:var(--font-display);font-size:16px;margin:34px 0 12px;">발전정비 list</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:34px 0 12px;">
+        <h2 style="font-family:var(--font-display);font-size:16px;margin:0;">발전정비 list</h2>
+        <button class="btn btn-ghost" id="exportUnreportedBtn" style="font-size:12.5px;padding:8px 14px;">📥 미보고 항목 엑셀 다운로드</button>
+      </div>
       <div class="chip-row tight" id="chipRow"></div>
 
       <table>
@@ -437,7 +440,7 @@ document.getElementById('adminToggleBtn').addEventListener('click', ()=>{
   if(isAdmin){ isAdmin = false; updateAdminUI(); return; }
   const input = prompt('담당자 암호를 입력하세요');
   if(input === null) return;
-  if(input.trim() === ADMIN_KEY){
+  if(input.replace(/\s/g,'') === ADMIN_KEY){
     isAdmin = true;
     updateAdminUI();
   } else {
@@ -682,6 +685,39 @@ async function handleFiles(fileArr){
   renderDash();
 }
 
+function normalizeWorkText(s){
+  return String(s||'')
+    .replace(/[\s\u00A0]/g,'')
+    .replace(/[()\[\]{}'"‘’“”.,·\-–—/#]/g,'')
+    .toLowerCase();
+}
+
+function isSimilarWork(a, b){
+  const na = normalizeWorkText(a);
+  const nb = normalizeWorkText(b);
+  if(!na || !nb) return false;
+  if(na === nb) return true;
+  if(na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+  // 공백 기준 단어 겹침 비율로 유사 판단 (표현이 조금 달라도 같은 작업으로 인식)
+  const wordsA = String(a).trim().split(/\s+/).filter(w=>w.length>=2);
+  const wordsB = String(b).trim().split(/\s+/).filter(w=>w.length>=2);
+  if(!wordsA.length || !wordsB.length) return false;
+  const setB = new Set(wordsB.map(w=>w.toLowerCase()));
+  const overlap = wordsA.filter(w=>setB.has(w.toLowerCase())).length;
+  const ratio = overlap / Math.min(wordsA.length, wordsB.length);
+  return ratio >= 0.6;
+}
+
+// 발전정비 list(엑셀) 항목이 실제작업 list(PPT)에 보고됐는지 판단.
+// 1순위: 발행번호 일치. 2순위: 발행번호가 달라도 작업명/내용이 비슷하면 같은 작업으로 간주.
+function isReportedInPpt(r){
+  const id = String(r['발행번호']||'').trim();
+  if(id && pptRecords.some(p => String(p['발행번호']||'').trim() === id)) return true;
+  const name = r['작업명'];
+  if(!name) return false;
+  return pptRecords.some(p => isSimilarWork(name, p['내용']));
+}
+
 function classify(r){
   return HAZARD_DEFS.filter(h => {
     if(h.test) return h.test(r);
@@ -827,14 +863,14 @@ function renderTableA(){
 function buildChips(){
   const counts = {all: records.length};
   HAZARD_DEFS.forEach(h => counts[h.key] = records.filter(r=>classify(r).some(x=>x.key===h.key)).length);
-  counts['pending'] = records.filter(r=> statusInfo(r).cls !== 'done').length;
+  counts['unreported'] = records.filter(r=> !isReportedInPpt(r)).length;
   counts['general'] = records.filter(r=> classify(r).length === 0).length;
 
   const chipRow = document.getElementById('chipRow');
   chipRow.innerHTML = '';
   const defs = [
     {key:'all', label:'전체'},
-    {key:'pending', label:'승인대기'},
+    {key:'unreported', label:'미보고항목'},
     {key:'general', label:'일반작업'},
     ...HAZARD_DEFS.map(h=>({key:h.key, label:h.label})),
   ];
@@ -883,8 +919,8 @@ document.querySelectorAll('th[data-sort]').forEach(th=>{
 function renderTable(){
   let rows = records.slice();
 
-  if(activeFilter === 'pending'){
-    rows = rows.filter(r=>statusInfo(r).cls !== 'done');
+  if(activeFilter === 'unreported'){
+    rows = rows.filter(r=>!isReportedInPpt(r));
   } else if(activeFilter === 'general'){
     rows = rows.filter(r=>classify(r).length === 0);
   } else if(activeFilter !== 'all'){
@@ -908,7 +944,6 @@ function renderTable(){
   });
 
   const tbody = document.getElementById('tbody');
-  const pptPtwSet = new Set(pptRecords.map(r => String(r['발행번호']).trim()));
   if(!rows.length){
     tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 허가서가 없습니다.</td></tr>`;
   } else {
@@ -917,7 +952,7 @@ function renderTable(){
       const st = statusInfo(r);
       const isPsm = tags.some(t=>t.key==='PSM설비');
       const id = escapeHtml(r['발행번호']||'');
-      const isUnmatched = !pptPtwSet.has(String(r['발행번호']||'').trim());
+      const isUnmatched = !isReportedInPpt(r);
       const rowCls = isPsm ? 'psm-row' : (isUnmatched ? 'unmatched-row' : '');
       return `
       <tr class="${rowCls}">
@@ -934,7 +969,7 @@ function renderTable(){
     }).join('');
   }
 
-  const unmatchedCount = rows.filter(r=>!pptPtwSet.has(String(r['발행번호']||'').trim())).length;
+  const unmatchedCount = rows.filter(r=>!isReportedInPpt(r)).length;
   document.getElementById('countNote').textContent = `${rows.length}건 표시 중 (전체 ${records.length}건) · 실제작업 list에 없음: ${unmatchedCount}건`;
 }
 
@@ -1012,1011 +1047,31 @@ document.getElementById('tbodyA').addEventListener('dblclick', e=>{
   showDraftNote();
 });
 
-subscribeLive();
-</script>
-</body>
-</html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>일일 작업 리스트</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
-<style>
-  :root{
-    --navy-950:#0b1626;
-    --navy-900:#0f1e33;
-    --navy-800:#152945;
-    --navy-700:#1e3557;
-    --steel-200:#e4e9ef;
-    --steel-100:#eef1f5;
-    --steel-50:#f6f8fa;
-    --paper:#fbfaf7;
-    --ink:#16212f;
-    --ink-soft:#5b6b7f;
-    --line:#dde3ea;
-    --orange:#d9761f;
-    --orange-deep:#b65c12;
-    --orange-tint:#fbe9d6;
-    --green:#2f7d5e;
-    --green-tint:#e1f0e8;
-    --amber:#a97416;
-    --amber-tint:#faf0da;
-    --red:#c0433a;
-    --red-tint:#fbe4e1;
-    --font-display:'Space Grotesk', sans-serif;
-    --font-body:'IBM Plex Sans KR','Malgun Gothic',sans-serif;
-    --font-mono:'IBM Plex Mono', monospace;
+function exportUnreportedExcel(){
+  const unreported = records.filter(r => !isReportedInPpt(r));
+  if(!unreported.length){
+    alert('미보고 항목이 없습니다.');
+    return;
   }
-  *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:var(--steel-50);
-    color:var(--ink);
-    font-family:var(--font-body);
-    -webkit-font-smoothing:antialiased;
-  }
-  .app{max-width:1180px;margin:0 auto;padding:0 20px 64px;}
-
-  /* ===== Header ===== */
-  header.topbar{
-    background:linear-gradient(160deg,var(--navy-950),var(--navy-800) 130%);
-    color:#fff;
-    padding:26px 28px 22px;
-    border-radius:0 0 18px 18px;
-    margin:0 -20px 22px;
-    position:relative;
-    overflow:hidden;
-  }
-  header.topbar::after{
-    content:"";
-    position:absolute; right:-40px; top:-60px;
-    width:220px;height:220px;border-radius:50%;
-    background:radial-gradient(circle, rgba(217,118,31,.22), transparent 70%);
-  }
-  .topbar-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;position:relative;z-index:1;}
-  .eyebrow{
-    font-family:var(--font-mono);
-    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
-    color:#f2b878;margin:0 0 6px;
-  }
-  h1{
-    font-family:var(--font-display);
-    font-size:26px;font-weight:700;margin:0;letter-spacing:-.01em;
-  }
-  .subtitle{color:#a9b8ce;font-size:13.5px;margin-top:6px;max-width:520px;line-height:1.5;}
-  .date-badge{
-    font-family:var(--font-mono);
-    background:rgba(255,255,255,.08);
-    border:1px solid rgba(255,255,255,.16);
-    padding:9px 14px;border-radius:10px;
-    font-size:13px;text-align:right;min-width:150px;
-  }
-  .date-badge b{display:block;font-size:16px;font-family:var(--font-display);margin-top:2px;}
-
-  /* ===== Upload ===== */
-  .upload-zone{
-    border:2px dashed var(--line);
-    background:#fff;
-    border-radius:16px;
-    padding:34px 24px;
-    text-align:center;
-    transition:border-color .15s, background .15s;
-  }
-  .upload-zone.drag{border-color:var(--orange);background:var(--orange-tint);}
-  .upload-zone h2{font-family:var(--font-display);font-size:17px;margin:0 0 6px;}
-  .upload-zone p{color:var(--ink-soft);font-size:13.5px;margin:0 0 18px;}
-  .btn{
-    font-family:var(--font-body);
-    font-weight:600;font-size:14px;
-    border:none;border-radius:9px;
-    padding:11px 20px;cursor:pointer;
-    display:inline-flex;align-items:center;gap:8px;
-    transition:transform .1s, box-shadow .15s;
-  }
-  .btn:active{transform:translateY(1px);}
-  .btn-primary{background:var(--orange);color:#fff;box-shadow:0 6px 16px -6px rgba(217,118,31,.55);}
-  .btn-primary:hover{background:var(--orange-deep);}
-  .btn-ghost{background:transparent;color:var(--navy-800);border:1px solid var(--line);}
-  .btn-ghost:hover{border-color:var(--navy-700);}
-  #fileInput{display:none;}
-  .file-list{margin-top:16px;display:flex;flex-direction:column;gap:6px;max-width:520px;margin-left:auto;margin-right:auto;text-align:left;}
-  .file-chip{
-    display:flex;justify-content:space-between;align-items:center;
-    background:var(--steel-100);border-radius:8px;padding:8px 12px;
-    font-family:var(--font-mono);font-size:12.5px;color:var(--navy-800);
-  }
-  .file-chip .ok{color:var(--green);font-weight:600;}
-
-  /* ===== Dashboard (post-upload) ===== */
-  .dash{display:none;}
-  .dash.show{display:block;}
-
-  .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
-  .stat-card{
-    background:#fff;border:1px solid var(--line);border-radius:12px;
-    padding:14px 14px 12px;
-  }
-  .stat-card .n{font-family:var(--font-display);font-size:24px;font-weight:700;color:var(--navy-900);}
-  .stat-card .l{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
-  .stat-card.pending .n{color:var(--amber);}
-  .stat-card.psm{background:var(--orange-tint);border-color:#eec294;}
-  .stat-card.psm .n{color:var(--orange-deep);}
-
-  .toolbar{
-    display:flex;gap:10px;align-items:center;flex-wrap:wrap;
-    margin-bottom:14px;
-  }
-  .search-box{
-    flex:1;min-width:200px;
-    background:#fff;border:1px solid var(--line);border-radius:9px;
-    padding:9px 13px;font-size:13.5px;font-family:var(--font-body);
-  }
-  .search-box:focus{outline:none;border-color:var(--orange);}
-
-  .chip-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px;}
-  .chip-row.tight{
-    flex-wrap:nowrap;gap:4px;
-  }
-  .chip-row.tight .chip{
-    flex:1 1 0;min-width:0;
-    padding:6px 6px;font-size:10.5px;gap:3px;
-    justify-content:center;white-space:nowrap;
-  }
-  .chip{
-    font-family:var(--font-mono);
-    font-size:12px;font-weight:500;
-    padding:7px 12px;border-radius:20px;
-    border:1px solid var(--line);background:#fff;color:var(--navy-800);
-    cursor:pointer;user-select:none;
-    display:flex;align-items:center;gap:6px;
-    transition:all .12s;
-  }
-  .chip:hover{border-color:var(--navy-700);}
-  .chip .cnt{color:var(--ink-soft);}
-  .chip.active{background:var(--navy-900);color:#fff;border-color:var(--navy-900);}
-  .chip.active .cnt{color:#c9d5e4;}
-
-  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
-  thead th{
-    background:var(--steel-100);
-    font-family:var(--font-mono);
-    font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);
-    text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);
-    cursor:pointer; white-space:nowrap;
-  }
-  thead th:hover{color:var(--navy-900);}
-  tbody tr{border-bottom:1px solid var(--steel-100);}
-  tbody tr:last-child{border-bottom:none;}
-  tbody tr:hover{background:var(--steel-50);}
-  tbody tr.psm-row{background:var(--orange-tint);}
-  tbody tr.psm-row:hover{background:#f7dfba;}
-  td{padding:10px 12px;font-size:13px;vertical-align:top;}
-  td.name{font-weight:500;max-width:340px;line-height:1.4;}
-  td.mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);white-space:nowrap;}
-  .tag-wrap{display:flex;flex-wrap:wrap;gap:4px;max-width:220px;}
-  .tag{
-    font-size:10.5px;font-family:var(--font-mono);font-weight:600;
-    padding:2px 7px;border-radius:5px;white-space:nowrap;
-  }
-  .tag.fire{background:#fbe4e1;color:var(--red);}
-  .tag.confined{background:#e1e9fb;color:#2c4fa8;}
-  .tag.elec{background:#fdf1cf;color:#8a6a06;}
-  .tag.dig{background:#eae3d9;color:#6b573a;}
-  .tag.rad{background:#f2ddf7;color:#7a2f8c;}
-  .tag.height{background:#dcf3ec;color:#1a7a5e;}
-  .tag.heavy{background:#e6e6ee;color:#4a4a72;}
-  .tag.dive{background:#d9f0fb;color:#186f96;}
-  .tag.psm{background:var(--orange-deep);color:#fff;}
-
-  /* stamp-style status badge */
-  .stamp{
-    display:inline-flex;align-items:center;gap:6px;
-    font-family:var(--font-mono);font-size:11px;font-weight:600;
-    padding:4px 10px 4px 8px;border-radius:20px;border:1.5px solid;
-    white-space:nowrap;
-  }
-  .stamp::before{content:"●";font-size:8px;}
-  .stamp.done{color:var(--green);border-color:var(--green);background:var(--green-tint);}
-  .stamp.review{color:var(--amber);border-color:var(--amber);background:var(--amber-tint);}
-  .stamp.draft{color:var(--red);border-color:var(--red);background:var(--red-tint);}
-
-  .empty-row td{text-align:center;color:var(--ink-soft);padding:40px 12px;font-size:13.5px;}
-  .del-btn{
-    background:none;border:1px solid var(--line);border-radius:6px;
-    color:var(--red);width:26px;height:26px;cursor:pointer;font-size:13px;
-    display:flex;align-items:center;justify-content:center;
-  }
-  .del-btn:hover{background:var(--red-tint);border-color:var(--red);}
-
-  .inline-edit{
-    width:64px;border:1px solid transparent;border-radius:5px;
-    background:transparent;font-family:var(--font-mono);font-size:12px;
-    padding:3px 5px;color:var(--ink);
-  }
-  .inline-edit:hover{border-color:var(--line);}
-  .inline-edit:focus{outline:none;border-color:var(--orange);background:#fff;}
-
-  .foot-note{margin-top:14px;font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;}
-  .reset-link{background:none;border:none;color:var(--navy-800);text-decoration:underline;cursor:pointer;font-size:12px;font-family:var(--font-body);padding:0;}
-
-  @media (max-width:800px){
-    .stat-row{grid-template-columns:repeat(3,1fr);}
-    table thead{display:none;}
-    table, tbody, tr, td{display:block;width:100%;}
-    tbody tr{padding:10px 12px;border-bottom:6px solid var(--steel-100);}
-    td{padding:3px 0;}
-    td.mono{white-space:normal;}
-    .chip-row.tight{flex-wrap:wrap;}
-    .chip-row.tight .chip{flex:0 0 auto;padding:6px 10px;font-size:11px;}
-  }
-</style>
-</head>
-<body>
-<div class="app">
-
-  <header class="topbar">
-    <div class="topbar-row">
-      <div>
-        <p class="eyebrow">PTW DAILY CLASSIFIER</p>
-        <h1>일일 작업 리스트</h1>
-      </div>
-      <div class="date-badge">
-        작업날짜<b id="todayLabel">—</b>
-        <button class="btn" id="adminToggleBtn" style="margin-top:10px;width:100%;font-size:12px;padding:7px 10px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.3);">담당자 모드</button>
-      </div>
-    </div>
-  </header>
-
-  <div class="upload-zone" id="lockedZone">
-    <h2>🔒 담당자 전용</h2>
-    <p>업로드·게시는 담당자만 할 수 있습니다. 위 "담당자 모드" 버튼으로 암호를 입력하세요.</p>
-  </div>
-
-  <div class="upload-zone" id="uploadZone" style="display:none;">
-    <h2>파일 업로드 (담당자용)</h2>
-    <p>안전작업허가서 엑셀(발전정비 list용)과 일일 작업 안전 소통 현황 PPT(실제작업 list용)를 함께 선택하세요. 둘 다 올려도 되고, 하나만 올려도 됩니다.</p>
-    <button class="btn btn-primary" id="pickBtn">파일 선택</button>
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.pptx" multiple>
-    <div class="file-list" id="fileList"></div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-top:16px;">분류 후 <b>게시</b> 버튼을 누르면 Firebase에 저장되어, 이 페이지에 접속한 모든 사람 화면에 실시간으로 반영됩니다.</p>
-  </div>
-
-  <div class="dash" id="dash">
-    <div class="stat-row" id="statRow"></div>
-
-    <div class="toolbar">
-      <input class="search-box" id="searchBox" placeholder="작업명 · 작업위치 · 발행자 · 부서 검색">
-      <button class="btn btn-primary" id="publishBtn" style="display:none;">전체에 게시</button>
-      <button class="btn btn-ghost" id="reuploadBtn" style="display:none;">파일 다시 업로드</button>
-    </div>
-
-    <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 12px;">실제작업 list</h2>
-    <div class="chip-row" id="chipRowA"></div>
-    <table>
-      <thead>
-        <tr>
-          <th data-sort="발행번호">발행번호</th>
-          <th data-sort="업체">업체</th>
-          <th data-sort="인원">인원</th>
-          <th data-sort="장소">장소</th>
-          <th data-sort="내용">내용</th>
-          <th data-sort="작업유형">작업유형</th>
-          <th data-sort="담당자">담당자</th>
-          <th data-sort="운전부서">운전부서</th>
-          <th id="delColHeaderA" style="display:none;"></th>
-        </tr>
-      </thead>
-      <tbody id="tbodyA"></tbody>
-    </table>
-    <div class="foot-note">
-      <span id="countNoteA"></span>
-    </div>
-
-    <div id="ptwSection" style="display:none;">
-      <h2 style="font-family:var(--font-display);font-size:16px;margin:34px 0 12px;">발전정비 list</h2>
-      <div class="chip-row tight" id="chipRow"></div>
-
-      <table>
-        <thead>
-          <tr>
-            <th data-sort="발행번호">발행번호</th>
-            <th data-sort="발행상태">상태</th>
-            <th data-sort="작업명">작업명</th>
-            <th data-sort="작업위치">작업위치</th>
-            <th data-sort="구분">위험분류</th>
-            <th data-sort="발행부서">발행부서</th>
-            <th data-sort="운전부서">운전부서</th>
-            <th data-sort="발행자">발행자</th>
-            <th id="delColHeader" style="display:none;"></th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-      </table>
-
-      <div class="foot-note">
-        <span id="countNote"></span>
-        <button class="reset-link" id="resetLink" style="display:none;">전체 초기화</button>
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<script>
-const HAZARD_DEFS = [
-  {key:'구분_화기', label:'화기작업', cls:'fire', test:r => r['구분']==='화기작업'},
-  {key:'밀폐', label:'밀폐공간', cls:'confined'},
-  {key:'전기', label:'전기작업', cls:'elec'},
-  {key:'굴착', label:'굴착작업', cls:'dig'},
-  {key:'유해물질', label:'유해물질/위험물', cls:'rad'},
-  {key:'고소', label:'고소작업', cls:'height'},
-  {key:'중장비', label:'중장비', cls:'heavy'},
-  {key:'잠수', label:'잠수작업', cls:'dive'},
-  {key:'PSM설비', label:'PSM설비', cls:'psm'},
-];
-
-const STATUS_MAP = {
-  '발행완료': {cls:'done', label:'발행완료'},
-  'EES 승인중': {cls:'review', label:'승인중'},
-  '승인중': {cls:'review', label:'승인중'},
-  '작성중': {cls:'draft', label:'작성중'},
-};
-
-let records = [];      // 발전정비 list (엑셀 기반)
-let pptRecords = [];   // 실제작업 list (PPT 기반)
-let activeFilter = 'all';
-let activeGroup = '전체';
-let activeFilterA = 'all';
-let activeGroupA = '전체';
-
-// PPT의 작업유형은 Y/N 컬럼이 아니라 자유 텍스트(예: "고소, 중장비")라서 키워드로 매칭
-const HAZARD_KEYWORDS = {
-  '구분_화기': '화기',
-  '밀폐': '밀폐',
-  '전기': '전기',
-  '굴착': '굴착',
-  '유해물질': '유해물질',
-  '고소': '고소',
-  '중장비': '중장비',
-  '잠수': '잠수',
-  'PSM설비': 'PSM',
-};
-function classifyFreeText(text){
-  const t = String(text||'');
-  return HAZARD_DEFS.filter(h => t.includes(HAZARD_KEYWORDS[h.key]));
-}
-
-// 운전부서 원본 명칭(예: "탈황설비운전 1과", "KEPS 연료운영팀")을 상위 5개 그룹으로 매핑.
-// 사업장마다 부서명이 다를 수 있어 키워드 기반으로 분류합니다 — 실제와 다르면 알려주세요, 매핑을 조정하겠습니다.
-const OPS_GROUPS = ['CCR','CHS','EP/ASH','FGD','수처리'];
-function mapOpsGroup(dept){
-  const d = String(dept||'');
-  if(/탈황|FGD/i.test(d)) return 'FGD';
-  if(/회처리|EP\/?ASH|애쉬|애시/i.test(d)) return 'EP/ASH';
-  if(/수처리|폐수|하이포|HYPO/i.test(d)) return '수처리';
-  if(/연료|하역|저탄|CHS/i.test(d)) return 'CHS';
-  return 'CCR';
-}
-let searchTerm = '';
-let sortKey = '발행번호';
-let sortDir = -1;
-
-// ===== Firebase 설정 =====
-// Firebase 콘솔(console.firebase.google.com) → 프로젝트 설정 → 웹 앱 추가 시 나오는 값으로 교체하세요.
-const firebaseConfig = {
-  apiKey: "AIzaSyAHd6bdC7ZZtGhrruxrpBadFMSMqZmiWEg",
-  authDomain: "ptw-classify.firebaseapp.com",
-  projectId: "ptw-classify",
-  messagingSenderId: "959331381584",
-  appId: "1:959331381584:web:61363375bdae74476cbc55",
-};
-// 임의로 정한 비밀 문자열입니다. 원하시면 자유롭게 바꾸셔도 되지만,
-// 반드시 Firestore 보안 규칙(README 3번)에 있는 문자열과 동일해야 합니다.
-const ADMIN_KEY = "123456";
-
-// ===== 담당자 모드 (간단한 접근 제한) =====
-// 이 페이지 소스 코드를 볼 수 있는 사람은 암호를 알아낼 수 있으므로 완전한 보안은 아닙니다.
-// 팀원이 실수로 업로드/게시 버튼을 누르는 것을 막기 위한 용도입니다.
-let isAdmin = false;
-
-function updateAdminUI(){
-  document.getElementById('publishBtn').style.display = isAdmin ? '' : 'none';
-  document.getElementById('reuploadBtn').style.display = isAdmin ? '' : 'none';
-  document.getElementById('resetLink').style.display = isAdmin ? '' : 'none';
-  document.getElementById('delColHeader').style.display = isAdmin ? '' : 'none';
-  document.getElementById('delColHeaderA').style.display = isAdmin ? '' : 'none';
-  document.getElementById('ptwSection').style.display = isAdmin ? 'block' : 'none';
-  document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
-  // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
-  if(!document.getElementById('dash').classList.contains('show')){
-    document.getElementById('lockedZone').style.display = isAdmin ? 'none' : 'block';
-    document.getElementById('uploadZone').style.display = isAdmin ? 'block' : 'none';
-  } else {
-    renderTable();
-    renderTableA();
-  }
-}
-
-document.getElementById('adminToggleBtn').addEventListener('click', ()=>{
-  if(isAdmin){ isAdmin = false; updateAdminUI(); return; }
-  const input = prompt('담당자 암호를 입력하세요');
-  if(input === null) return;
-  if(input === ADMIN_KEY){
-    isAdmin = true;
-    updateAdminUI();
-  } else {
-    alert('암호가 일치하지 않습니다.');
-  }
-});
-
-updateAdminUI();
-
-let db = null;
-try{
-  firebase.initializeApp(firebaseConfig);
-  db = firebase.firestore();
-}catch(err){
-  console.error('Firebase 초기화 실패 — firebaseConfig 값을 확인하세요.', err);
-}
-
-const DOC_REF = () => db.collection('ptw').doc('latest');
-
-// 실시간 구독: 누군가 게시하면 이 페이지를 열어둔 모든 사람 화면이 자동으로 갱신됩니다.
-let hasLocalDraft = false; // 업로드했지만 아직 게시 안 한 상태 — 이 동안엔 실시간 구독이 화면을 덮어쓰지 않음
-
-function subscribeLive(){
-  if(!db) return;
-  DOC_REF().onSnapshot(snap=>{
-    if(hasLocalDraft) return; // 로컬에 아직 게시 안 한 업로드가 있으면 무시
-    if(!snap.exists) return;
-    const data = snap.data();
-    if(!data) return;
-    const hasAny = (Array.isArray(data.records) && data.records.length) || (Array.isArray(data.pptRecords) && data.pptRecords.length);
-    if(hasAny){
-      records = Array.isArray(data.records) ? data.records : [];
-      pptRecords = Array.isArray(data.pptRecords) ? data.pptRecords : [];
-      renderDash();
-      showPublishedNote(data.savedAt);
-    }
-  }, err=>{
-    console.error('실시간 구독 오류 — Firestore 보안 규칙(읽기 허용)을 확인하세요.', err);
-  });
-}
-
-function showPublishedNote(savedAt){
-  let note = document.getElementById('publishedNote');
-  const t = savedAt ? new Date(savedAt).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-  if(!note){
-    note = document.createElement('div');
-    note.id = 'publishedNote';
-    note.style.cssText = 'border-radius:9px;padding:9px 13px;font-size:12.5px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;';
-    document.getElementById('dash').insertBefore(note, document.getElementById('dash').firstChild);
-  }
-  note.style.background = '#eef1f5';
-  note.style.border = '1px solid #dde3ea';
-  note.style.color = '#5b6b7f';
-  note.innerHTML = `<span>실시간 게시된 최신 분류 결과입니다${t ? ` (업데이트: ${t})` : ''}. 접속한 모든 사람에게 자동으로 반영됩니다.</span>`;
-}
-
-async function publishToFirebase(){
-  if(!db){ alert('Firebase 연결에 실패했습니다. firebaseConfig 값을 확인하세요.'); return; }
-  const btn = document.getElementById('publishBtn');
-  const original = btn.textContent;
-  btn.textContent = '게시 중…'; btn.disabled = true;
-  try{
-    await DOC_REF().set({
-      savedAt: new Date().toISOString(),
-      records,
-      pptRecords,
-      adminKey: ADMIN_KEY,
-    });
-    btn.textContent = '게시 완료 ✓';
-    hasLocalDraft = false;
-  }catch(err){
-    console.error(err);
-    btn.textContent = '게시 실패';
-    alert('게시 실패: Firestore 쓰기 권한(보안 규칙)을 확인하세요.\n' + err.message);
-  }
-  setTimeout(()=>{ btn.textContent = original; btn.disabled = false; }, 2000);
-}
-
-const fileInput = document.getElementById('fileInput');
-const uploadZone = document.getElementById('uploadZone');
-const pickBtn = document.getElementById('pickBtn');
-const fileListEl = document.getElementById('fileList');
-
-pickBtn.addEventListener('click', () => fileInput.click());
-
-['dragover','dragleave','drop'].forEach(evt=>{
-  uploadZone.addEventListener(evt, e=>{
-    e.preventDefault();
-    if(evt==='dragover') uploadZone.classList.add('drag');
-    if(evt==='dragleave'||evt==='drop') uploadZone.classList.remove('drag');
-    if(evt==='drop' && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
-  });
-});
-
-fileInput.addEventListener('change', e => handleFiles(e.target.files));
-
-function readArrayBuffer(file){
-  return new Promise((resolve, reject)=>{
-    const reader = new FileReader();
-    reader.onload = evt => resolve(evt.target.result);
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-function decodeXmlEntities(s){
-  return String(s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
-}
-
-function extractSlideCellText(cellXml){
-  const paras = cellXml.match(/<a:p[ >][\s\S]*?<\/a:p>/g) || [];
-  const paraTexts = paras.map(p=>{
-    const runs = p.match(/<a:t>([\s\S]*?)<\/a:t>/g) || [];
-    return runs.map(r=>decodeXmlEntities(r.replace(/<a:t>|<\/a:t>/g,''))).join('');
-  }).filter(t=>t.length);
-  return paraTexts.join(' ').trim();
-}
-
-function extractSlideTable(xml){
-  const rowChunks = xml.split(/<a:tr[ >]/).slice(1);
-  return rowChunks.map(rowXml=>{
-    const cellChunks = rowXml.split(/<a:tc[ >]/).slice(1);
-    return cellChunks.map(extractSlideCellText);
-  });
-}
-
-function extractSlideGroup(titleText){
-  const m = String(titleText||'').match(/\(([^)]+)\)/);
-  const code = m ? m[1] : '';
-  if(code.startsWith('수처리')) return '수처리';
-  if(code.startsWith('FGD')) return 'FGD';
-  if(code.startsWith('EP')) return 'EP/ASH';
-  if(code.startsWith('CHS')) return 'CHS';
-  if(code.startsWith('CCR')) return 'CCR';
-  return 'CCR';
-}
-
-async function parsePptxFile(file){
-  const buf = await readArrayBuffer(file);
-  const zip = await JSZip.loadAsync(buf);
-  const slideFiles = Object.keys(zip.files)
-    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
-    .sort((a,b)=> parseInt(a.match(/slide(\d+)/)[1]) - parseInt(b.match(/slide(\d+)/)[1]));
-
-  const out = [];
-  for(const f of slideFiles){
-    const xml = await zip.files[f].async('string');
-    const table = extractSlideTable(xml);
-    if(!table.length) continue;
-    const title = table[0][0] || '';
-    const group = extractSlideGroup(title);
-    const headerRowIdx = table.findIndex(row => row[1] && row[1].trim()==='PTW');
-    if(headerRowIdx === -1) continue;
-    const headers = table[headerRowIdx];
-    const nameColIdx = headers.findIndex(h=>h.trim().startsWith('이름'));
-    table.slice(headerRowIdx+1).forEach(row=>{
-      const ptw = (row[1]||'').trim();
-      if(!ptw) return; // 발행번호 없는 빈 행 제외
-      const nameContact = (row[nameColIdx]||'').trim();
-      const spaceIdx = nameContact.indexOf(' ');
-      const name = spaceIdx>-1 ? nameContact.slice(0,spaceIdx) : nameContact;
-      const contact = spaceIdx>-1 ? nameContact.slice(spaceIdx+1).trim() : '';
-      out.push({
-        '발행번호': ptw,
-        '업체': (row[2]||'').trim(),
-        '인원': (row[3]||'').trim(),
-        '장소': (row[4]||'').trim(),
-        '내용': (row[5]||'').trim(),
-        '작업유형': (row[6]||'').trim(),
-        '담당자': name,
-        '연락처': contact,
-        '운전부서': group,
-      });
-    });
-  }
-  return out;
-}
-
-async function handleFiles(fileArr){
-  const files = Array.from(fileArr).filter(f=>/\.(xlsx|xls|pptx)$/i.test(f.name));
-  if(!files.length) return;
-  fileListEl.innerHTML = '';
-  const merged = new Map();       // 발전정비 list (엑셀) — 발행번호 -> row
-  const pptMerged = new Map();    // 실제작업 list (PPT) — 발행번호 -> row
-
-  files.sort((a,b)=> a.name.localeCompare(b.name));
-
-  await Promise.all(files.map(async file=>{
-    const chip = document.createElement('div');
-    chip.className = 'file-chip';
-    chip.innerHTML = `<span>${file.name}</span><span>불러오는 중…</span>`;
-    fileListEl.appendChild(chip);
-
-    try{
-      if(/\.pptx$/i.test(file.name)){
-        const rows = await parsePptxFile(file);
-        rows.forEach(r => pptMerged.set(r['발행번호'], r));
-        chip.innerHTML = rows.length > 0
-          ? `<span>${file.name}</span><span class="ok">${rows.length}건 ✓ (작업신고)</span>`
-          : `<span>${file.name}</span><span style="color:#c0433a">0건 인식 (양식 확인 필요)</span>`;
-      } else {
-        const buf = await readArrayBuffer(file);
-        const wb = XLSX.read(buf, {type:'array'});
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:''});
-        const ptwHeaderIdx = raw.findIndex(row => row.some(cell => String(cell).trim() === '발행번호'));
-        let addedCount = 0;
-        if(ptwHeaderIdx !== -1){
-          const headers = raw[ptwHeaderIdx].map(h => String(h).trim());
-          const rows = raw.slice(ptwHeaderIdx + 1)
-            .filter(r => r.some(cell => String(cell).trim() !== ''))
-            .map(r => {
-              const obj = {};
-              headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
-              return obj;
-            });
-          rows.forEach(r=>{
-            const id = String(r['발행번호']||'').trim();
-            if(id){ merged.set(id, r); addedCount++; }
-          });
-        }
-        chip.innerHTML = addedCount > 0
-          ? `<span>${file.name}</span><span class="ok">${addedCount}건 ✓ (발전정비)</span>`
-          : `<span>${file.name}</span><span style="color:#c0433a">0건 인식 (헤더 확인 필요)</span>`;
-      }
-    }catch(err){
-      console.error(err);
-      chip.innerHTML = `<span>${file.name}</span><span style="color:#c0433a">읽기 실패</span>`;
-    }
+  const rows = unreported.map(r => ({
+    '발행번호': r['발행번호'] || '',
+    '상태': statusInfo(r).label,
+    '작업명': r['작업명'] || '',
+    '작업위치': r['작업위치'] || '',
+    '위험분류': classify(r).map(t=>t.label).join(', ') || '일반',
+    '발행부서': r['발행부서'] || '',
+    '운전부서': r['운전부서'] || '',
+    '발행자': r['발행자'] || '',
   }));
-
-  const hasXlsxFile = files.some(f=>/\.(xlsx|xls)$/i.test(f.name));
-  const hasPptxFile = files.some(f=>/\.pptx$/i.test(f.name));
-
-  if(hasXlsxFile){
-    records = Array.from(merged.values());
-  }
-  if(hasPptxFile){
-    pptRecords = Array.from(pptMerged.values());
-  }
-  hasLocalDraft = true;
-  renderDash();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:10},{wch:10},{wch:40},{wch:16},{wch:20},{wch:16},{wch:16},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '미보고항목');
+  const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  XLSX.writeFile(wb, `미보고항목_${dateStr}.xlsx`);
 }
 
-function classify(r){
-  return HAZARD_DEFS.filter(h => {
-    if(h.test) return h.test(r);
-    // 컬럼명이 파일마다 조금씩 다를 수 있어(예: '밀폐' vs '밀폐공간출입'), 키워드가 포함된 컬럼을 찾아서 확인
-    return Object.keys(r).some(k => k.includes(h.key) && String(r[k]).trim().toUpperCase()==='Y');
-  });
-}
-
-function statusInfo(r){
-  const raw = String(r['발행상태']||'').trim();
-  return STATUS_MAP[raw] || {cls:'draft', label: raw || '미확인'};
-}
-
-function toDateOnlyString(v){
-  const s = String(v||'').trim();
-  // 기본 형태: 엑셀에 표시된 그대로의 텍스트, 예: "2026-08-14" (타임존 변환 없이 그대로 사용 — 가장 안전함)
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if(m) return `${m[1]}. ${m[2].padStart(2,'0')}. ${m[3].padStart(2,'0')}.`;
-  m = s.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})/);
-  if(m) return `${m[1]}. ${m[2].padStart(2,'0')}. ${m[3].padStart(2,'0')}.`;
-
-  // 예전에 게시된 데이터 호환용 (Date 객체 / Firestore Timestamp / ISO 문자열)
-  if(v instanceof Date && !isNaN(v)) return v.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
-  if(v && typeof v.toDate === 'function'){
-    const d = v.toDate();
-    if(!isNaN(d)) return d.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
-  }
-  if(typeof v === 'number'){
-    const d = XLSX.SSF ? XLSX.SSF.parse_date_code(v) : null;
-    if(d) return `${d.y}. ${String(d.m).padStart(2,'0')}. ${String(d.d).padStart(2,'0')}.`;
-  }
-  if(/^\d{4}-\d{2}-\d{2}T/.test(s)){
-    const parsed = new Date(s);
-    if(!isNaN(parsed)) return parsed.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
-  }
-  return s || null;
-}
-
-function updateWorkDateLabel(){
-  const label = document.getElementById('todayLabel');
-  if(!records.length){ label.textContent = '—'; return; }
-  const counts = {};
-  records.forEach(r=>{
-    const d = toDateOnlyString(r['작업시작일']);
-    if(d) counts[d] = (counts[d]||0) + 1;
-  });
-  const keys = Object.keys(counts);
-  if(!keys.length){ label.textContent = '—'; return; }
-  keys.sort((a,b)=> counts[b]-counts[a]);
-  const top = keys[0];
-  label.textContent = top;
-}
-
-function renderDash(){
-  document.getElementById('dash').classList.add('show');
-  uploadZone.style.display = 'none';
-  document.getElementById('lockedZone').style.display = 'none';
-  buildChipsA();
-  renderTableA();
-  buildChips();
-  renderStats();
-  renderTable();
-  updateWorkDateLabel();
-  if(hasLocalDraft) showDraftNote();
-}
-
-function showDraftNote(){
-  let note = document.getElementById('publishedNote');
-  if(!note){
-    note = document.createElement('div');
-    note.id = 'publishedNote';
-    note.style.cssText = 'border-radius:9px;padding:9px 13px;font-size:12.5px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;';
-    document.getElementById('dash').insertBefore(note, document.getElementById('dash').firstChild);
-  }
-  note.style.background = '#faf0da';
-  note.style.border = '1px solid #eec294';
-  note.style.color = '#8a6a06';
-  note.innerHTML = `<span>⚠ 아직 게시되지 않은 미리보기입니다. "전체에 게시"를 눌러야 다른 사람에게도 반영됩니다.</span>`;
-}
-
-// ===== 실제작업 list (PPT 기반) =====
-
-function buildChipsA(){
-  const counts = {all: pptRecords.length};
-  HAZARD_DEFS.forEach(h => counts[h.key] = pptRecords.filter(r=>classifyFreeText(r['작업유형']).some(x=>x.key===h.key)).length);
-  counts['general'] = pptRecords.filter(r=>classifyFreeText(r['작업유형']).length === 0).length;
-  const chipRow = document.getElementById('chipRowA');
-  chipRow.innerHTML = '';
-  const defs = [{key:'all', label:'전체'}, {key:'general', label:'일반작업'}, ...HAZARD_DEFS.map(h=>({key:h.key, label:h.label}))];
-  defs.forEach(d=>{
-    const el = document.createElement('div');
-    el.className = 'chip' + (activeFilterA===d.key ? ' active':'');
-    el.innerHTML = `${d.label} <span class="cnt">${counts[d.key]||0}</span>`;
-    el.onclick = ()=>{ activeFilterA = d.key; buildChipsA(); renderTableA(); };
-    chipRow.appendChild(el);
-  });
-}
-
-function renderTableA(){
-  let rows = pptRecords.slice();
-  if(activeFilterA === 'general') rows = rows.filter(r => classifyFreeText(r['작업유형']).length === 0);
-  else if(activeFilterA !== 'all') rows = rows.filter(r => classifyFreeText(r['작업유형']).some(h=>h.key===activeFilterA));
-  if(searchTerm){
-    rows = rows.filter(r=>{
-      const hay = [r['내용'],r['장소'],r['담당자'],r['업체'],r['운전부서'],r['발행번호']].join(' ').toLowerCase();
-      return hay.includes(searchTerm);
-    });
-  }
-
-  rows.sort((a,b)=>{
-    let av = a[sortKey], bv = b[sortKey];
-    if(sortKey==='발행번호'){ av = Number(av)||0; bv = Number(bv)||0; }
-    else { av = String(av||''); bv = String(bv||''); }
-    if(av < bv) return -1*sortDir;
-    if(av > bv) return 1*sortDir;
-    return 0;
-  });
-
-  const tbody = document.getElementById('tbodyA');
-  if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 항목이 없습니다.</td></tr>`;
-  } else {
-    tbody.innerHTML = rows.map(r=>{
-      const tags = classifyFreeText(r['작업유형']);
-      const id = escapeHtml(r['발행번호']||'');
-      return `
-      <tr>
-        <td class="mono">#${id||'—'}</td>
-        <td>${escapeHtml(r['업체']||'')}</td>
-        <td class="mono">${escapeHtml(r['인원']||'')}</td>
-        <td>${escapeHtml(r['장소']||'')}</td>
-        <td class="name">${escapeHtml(r['내용']||'')}</td>
-        <td><div class="tag-wrap"${isAdmin ? ` data-edit-a="${id}" style="cursor:pointer;" title="더블클릭하여 수정"` : ''}>${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : '<span class="tag" style="background:#eef1f5;color:#5b6b7f">일반</span>'}</div></td>
-        <td>${escapeHtml(r['담당자']||'')}</td>
-        <td>${escapeHtml(r['운전부서']||'')}</td>
-        ${isAdmin ? `<td><button class="del-btn" data-del-a="${id}" title="삭제">✕</button></td>` : ''}
-      </tr>`;
-    }).join('');
-  }
-  document.getElementById('countNoteA').textContent = `${rows.length}건 표시 중 (전체 ${pptRecords.length}건)`;
-}
-
-function buildChips(){
-  const counts = {all: records.length};
-  HAZARD_DEFS.forEach(h => counts[h.key] = records.filter(r=>classify(r).some(x=>x.key===h.key)).length);
-  counts['pending'] = records.filter(r=> statusInfo(r).cls !== 'done').length;
-  counts['general'] = records.filter(r=> classify(r).length === 0).length;
-
-  const chipRow = document.getElementById('chipRow');
-  chipRow.innerHTML = '';
-  const defs = [
-    {key:'all', label:'전체'},
-    {key:'pending', label:'승인대기'},
-    {key:'general', label:'일반작업'},
-    ...HAZARD_DEFS.map(h=>({key:h.key, label:h.label})),
-  ];
-  defs.forEach(d=>{
-    const el = document.createElement('div');
-    el.className = 'chip' + (activeFilter===d.key ? ' active':'');
-    el.innerHTML = `${d.label} <span class="cnt">${counts[d.key]||0}</span>`;
-    el.onclick = ()=>{ activeFilter = d.key; buildChips(); renderTable(); };
-    chipRow.appendChild(el);
-  });
-}
-
-function renderStats(){
-  const totalAll = pptRecords.length;
-  const highRisk = pptRecords.filter(r=>classifyFreeText(r['작업유형']).length > 0).length;
-  const general = totalAll - highRisk;
-
-  const cards = [
-    {n: totalAll, l:'실제작업 건수'},
-    {n: highRisk, l:'고위험작업'},
-    {n: general, l:'일반작업'},
-  ];
-  const row = document.getElementById('statRow');
-  row.innerHTML = cards.map(c=>`
-    <div class="stat-card">
-      <div class="n">${c.n}</div>
-      <div class="l">${c.l}</div>
-    </div>`).join('');
-}
-
-document.getElementById('searchBox').addEventListener('input', e=>{
-  searchTerm = e.target.value.trim().toLowerCase();
-  renderTable();
-  renderTableA();
-});
-
-document.querySelectorAll('th[data-sort]').forEach(th=>{
-  th.addEventListener('click', ()=>{
-    const key = th.dataset.sort;
-    const isTableA = !!th.closest('table').querySelector('#tbodyA');
-    if(sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
-    if(isTableA) renderTableA(); else renderTable();
-  });
-});
-
-function renderTable(){
-  let rows = records.slice();
-
-  if(activeFilter === 'pending'){
-    rows = rows.filter(r=>statusInfo(r).cls !== 'done');
-  } else if(activeFilter === 'general'){
-    rows = rows.filter(r=>classify(r).length === 0);
-  } else if(activeFilter !== 'all'){
-    rows = rows.filter(r=>classify(r).some(h=>h.key===activeFilter));
-  }
-
-  if(searchTerm){
-    rows = rows.filter(r=>{
-      const hay = [r['작업명'],r['작업위치'],r['발행자'],r['발행부서'],r['운전부서'],r['발행번호']].join(' ').toLowerCase();
-      return hay.includes(searchTerm);
-    });
-  }
-
-  rows.sort((a,b)=>{
-    let av = a[sortKey], bv = b[sortKey];
-    if(sortKey==='발행번호'){ av = Number(av)||0; bv = Number(bv)||0; }
-    else { av = String(av||''); bv = String(bv||''); }
-    if(av < bv) return -1*sortDir;
-    if(av > bv) return 1*sortDir;
-    return 0;
-  });
-
-  const tbody = document.getElementById('tbody');
-  if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 허가서가 없습니다.</td></tr>`;
-  } else {
-    tbody.innerHTML = rows.map(r=>{
-      const tags = classify(r);
-      const st = statusInfo(r);
-      const isPsm = tags.some(t=>t.key==='PSM설비');
-      const id = escapeHtml(r['발행번호']||'');
-      return `
-      <tr class="${isPsm?'psm-row':''}">
-        <td class="mono">#${id||'—'}</td>
-        <td><span class="stamp ${st.cls}">${st.label}</span></td>
-        <td class="name">${escapeHtml(r['작업명']||'')}</td>
-        <td>${escapeHtml(r['작업위치']||'')}</td>
-        <td><div class="tag-wrap">${tags.length ? tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') : '<span class="tag" style="background:#eef1f5;color:#5b6b7f">일반</span>'}</div></td>
-        <td>${escapeHtml(r['발행부서']||'')}</td>
-        <td>${escapeHtml(r['운전부서']||'')}</td>
-        <td>${escapeHtml(r['발행자']||'')}</td>
-        ${isAdmin ? `<td><button class="del-btn" data-del-ptw="${id}" title="삭제">✕</button></td>` : ''}
-      </tr>`;
-    }).join('');
-  }
-
-  document.getElementById('countNote').textContent = `${rows.length}건 표시 중 (전체 ${records.length}건)`;
-}
-
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-document.getElementById('reuploadBtn').addEventListener('click', resetAll);
-document.getElementById('resetLink').addEventListener('click', resetAll);
-document.getElementById('publishBtn').addEventListener('click', publishToFirebase);
-
-function resetAll(){
-  records = [];
-  pptRecords = [];
-  hasLocalDraft = false;
-  activeFilter = 'all';
-  activeGroup = '전체';
-  activeFilterA = 'all';
-  activeGroupA = '전체';
-  searchTerm = '';
-  document.getElementById('searchBox').value = '';
-  fileListEl.innerHTML = '';
-  fileInput.value = '';
-  const note = document.getElementById('publishedNote');
-  if(note) note.remove();
-  document.getElementById('dash').classList.remove('show');
-  updateAdminUI();
-}
-
-document.getElementById('tbody').addEventListener('click', e=>{
-  const btn = e.target.closest('[data-del-ptw]');
-  if(!btn || !isAdmin) return;
-  const id = btn.getAttribute('data-del-ptw');
-  if(!confirm(`발행번호 #${id} 항목을 목록에서 삭제할까요?`)) return;
-  records = records.filter(r => String(r['발행번호']) !== id);
-  hasLocalDraft = true;
-  renderDash();
-});
-
-document.getElementById('tbody').addEventListener('input', e=>{
-  const input = e.target.closest('[data-field-ptw]');
-  if(!input || !isAdmin) return;
-  const id = input.getAttribute('data-id');
-  const field = input.getAttribute('data-field-ptw');
-  const rec = records.find(r => String(r['발행번호']) === id);
-  if(rec){
-    rec[field] = input.value;
-    hasLocalDraft = true;
-    showDraftNote(); // 표 전체를 다시 그리지 않고 배너만 갱신 (입력 포커스 유지)
-  }
-});
-
-document.getElementById('tbodyA').addEventListener('click', e=>{
-  const btn = e.target.closest('[data-del-a]');
-  if(!btn || !isAdmin) return;
-  const id = btn.getAttribute('data-del-a');
-  if(!confirm(`발행번호 #${id} 항목을 목록에서 삭제할까요?`)) return;
-  pptRecords = pptRecords.filter(r => String(r['발행번호']) !== id);
-  hasLocalDraft = true;
-  renderDash();
-});
-
-document.getElementById('tbodyA').addEventListener('dblclick', e=>{
-  const cell = e.target.closest('[data-edit-a]');
-  if(!cell || !isAdmin) return;
-  const id = cell.getAttribute('data-edit-a');
-  const rec = pptRecords.find(r => String(r['발행번호']) === id);
-  if(!rec) return;
-  const next = prompt('작업유형 수정 (예: 화기, 고소 — 쉼표로 여러 개 입력 가능)', rec['작업유형']||'');
-  if(next === null) return; // 취소
-  rec['작업유형'] = next;
-  hasLocalDraft = true;
-  buildChipsA();   // 작업유형이 바뀌면 상단 위험분류 칩 숫자도 다시 계산
-  renderTableA();  // 태그도 새로 반영
-  showDraftNote();
-});
+document.getElementById('exportUnreportedBtn').addEventListener('click', exportUnreportedExcel);
 
 subscribeLive();
 </script>
