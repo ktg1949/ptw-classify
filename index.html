@@ -301,29 +301,31 @@
       <span id="countNoteA"></span>
     </div>
 
-    <h2 style="font-family:var(--font-display);font-size:16px;margin:34px 0 12px;">발전정비 list</h2>
-    <div class="chip-row tight" id="chipRow"></div>
+    <div id="ptwSection" style="display:none;">
+      <h2 style="font-family:var(--font-display);font-size:16px;margin:34px 0 12px;">발전정비 list</h2>
+      <div class="chip-row tight" id="chipRow"></div>
 
-    <table>
-      <thead>
-        <tr>
-          <th data-sort="발행번호">발행번호</th>
-          <th data-sort="발행상태">상태</th>
-          <th data-sort="작업명">작업명</th>
-          <th data-sort="작업위치">작업위치</th>
-          <th data-sort="구분">위험분류</th>
-          <th data-sort="발행부서">발행부서</th>
-          <th data-sort="운전부서">운전부서</th>
-          <th data-sort="발행자">발행자</th>
-          <th id="delColHeader" style="display:none;"></th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="발행번호">발행번호</th>
+            <th data-sort="발행상태">상태</th>
+            <th data-sort="작업명">작업명</th>
+            <th data-sort="작업위치">작업위치</th>
+            <th data-sort="구분">위험분류</th>
+            <th data-sort="발행부서">발행부서</th>
+            <th data-sort="운전부서">운전부서</th>
+            <th data-sort="발행자">발행자</th>
+            <th id="delColHeader" style="display:none;"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
 
-    <div class="foot-note">
-      <span id="countNote"></span>
-      <button class="reset-link" id="resetLink" style="display:none;">전체 초기화</button>
+      <div class="foot-note">
+        <span id="countNote"></span>
+        <button class="reset-link" id="resetLink" style="display:none;">전체 초기화</button>
+      </div>
     </div>
   </div>
 
@@ -412,6 +414,7 @@ function updateAdminUI(){
   document.getElementById('resetLink').style.display = isAdmin ? '' : 'none';
   document.getElementById('delColHeader').style.display = isAdmin ? '' : 'none';
   document.getElementById('delColHeaderA').style.display = isAdmin ? '' : 'none';
+  document.getElementById('ptwSection').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
   // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
   if(!document.getElementById('dash').classList.contains('show')){
