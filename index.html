@@ -1047,6 +1047,13 @@ document.getElementById('tbodyA').addEventListener('dblclick', e=>{
   showDraftNote();
 });
 
+function toYYYYMMDD(v){
+  const s = String(v||'').trim();
+  const m = s.match(/(\d{4})[-.\/]?(\d{1,2})[-.\/]?(\d{1,2})/);
+  if(m) return `${m[1]}${m[2].padStart(2,'0')}${m[3].padStart(2,'0')}`;
+  return s;
+}
+
 function exportUnreportedExcel(){
   const unreported = records.filter(r => !isReportedInPpt(r));
   if(!unreported.length){
@@ -1054,6 +1061,7 @@ function exportUnreportedExcel(){
     return;
   }
   const rows = unreported.map(r => ({
+    '날짜': toYYYYMMDD(r['작업시작일']),
     '발행번호': r['발행번호'] || '',
     '상태': statusInfo(r).label,
     '작업명': r['작업명'] || '',
@@ -1064,7 +1072,7 @@ function exportUnreportedExcel(){
     '발행자': r['발행자'] || '',
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch:10},{wch:10},{wch:40},{wch:16},{wch:20},{wch:16},{wch:16},{wch:10}];
+  ws['!cols'] = [{wch:10},{wch:10},{wch:10},{wch:40},{wch:16},{wch:20},{wch:16},{wch:16},{wch:10}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '미보고항목');
   const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
