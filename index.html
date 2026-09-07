@@ -592,6 +592,10 @@ async function parsePptxFile(file){
     if(!table.length) continue;
     const title = table[0][0] || '';
     const group = extractSlideGroup(title);
+    // 제목 행 안의 "날짜 : 2026.08.31" 같은 셀에서 작업 날짜 추출
+    let workDate = '';
+    const dateMatch = table[0].join(' ').match(/(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/);
+    if(dateMatch) workDate = `${dateMatch[1]}-${dateMatch[2].padStart(2,'0')}-${dateMatch[3].padStart(2,'0')}`;
     const headerRowIdx = table.findIndex(row => row[1] && row[1].trim()==='PTW');
     if(headerRowIdx === -1) continue;
     const headers = table[headerRowIdx];
@@ -613,6 +617,7 @@ async function parsePptxFile(file){
         '담당자': name,
         '연락처': contact,
         '운전부서': group,
+        '작업날짜': workDate,
       });
     });
   }
@@ -758,17 +763,19 @@ function toDateOnlyString(v){
 
 function updateWorkDateLabel(){
   const label = document.getElementById('todayLabel');
-  if(!records.length){ label.textContent = '—'; return; }
   const counts = {};
   records.forEach(r=>{
     const d = toDateOnlyString(r['작업시작일']);
     if(d) counts[d] = (counts[d]||0) + 1;
   });
+  pptRecords.forEach(r=>{
+    const d = toDateOnlyString(r['작업날짜']);
+    if(d) counts[d] = (counts[d]||0) + 1;
+  });
   const keys = Object.keys(counts);
   if(!keys.length){ label.textContent = '—'; return; }
   keys.sort((a,b)=> counts[b]-counts[a]);
-  const top = keys[0];
-  label.textContent = top;
+  label.textContent = keys[0];
 }
 
 function renderDash(){
