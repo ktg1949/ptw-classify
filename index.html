@@ -567,6 +567,11 @@ function extractSlideTable(xml){
   });
 }
 
+function extractSlideFullText(xml){
+  const runs = xml.match(/<a:t>([\s\S]*?)<\/a:t>/g) || [];
+  return runs.map(r=>decodeXmlEntities(r.replace(/<a:t>|<\/a:t>/g,''))).join(' ');
+}
+
 function extractSlideGroup(titleText){
   const m = String(titleText||'').match(/\(([^)]+)\)/);
   const code = m ? m[1] : '';
@@ -592,9 +597,10 @@ async function parsePptxFile(file){
     if(!table.length) continue;
     const title = table[0][0] || '';
     const group = extractSlideGroup(title);
-    // 제목 행 안의 "날짜 : 2026.08.31" 같은 셀에서 작업 날짜 추출
+    // "날짜 : 2026.09.07"가 표 안이 아니라 별도 텍스트 상자에 있는 경우도 있어 슬라이드 전체 텍스트에서 탐색
     let workDate = '';
-    const dateMatch = table[0].join(' ').match(/(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/);
+    const fullText = extractSlideFullText(xml);
+    const dateMatch = fullText.match(/(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/);
     if(dateMatch) workDate = `${dateMatch[1]}-${dateMatch[2].padStart(2,'0')}-${dateMatch[3].padStart(2,'0')}`;
     const headerRowIdx = table.findIndex(row => row[1] && row[1].trim()==='PTW');
     if(headerRowIdx === -1) continue;
