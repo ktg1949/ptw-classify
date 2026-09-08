@@ -121,6 +121,23 @@
   .dash.show{display:block;}
 
   .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
+
+  .dash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .dash-panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;}
+  .dash-panel h3{font-family:var(--font-display);font-size:13.5px;margin:0 0 14px;color:var(--navy-900);}
+  .bar-chart{display:flex;flex-direction:column;gap:9px;}
+  .bar-row{display:flex;align-items:center;gap:8px;}
+  .bar-label{
+    font-size:11.5px;font-family:var(--font-mono);color:var(--ink-soft);
+    width:88px;flex:0 0 88px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .bar-track{flex:1;background:var(--steel-100);border-radius:5px;height:16px;position:relative;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:5px;background:var(--orange);transition:width .3s;}
+  .bar-count{
+    width:28px;flex:0 0 28px;text-align:right;font-family:var(--font-mono);
+    font-size:11.5px;font-weight:600;color:var(--navy-900);
+  }
+  .bar-empty{font-size:12.5px;color:var(--ink-soft);text-align:center;padding:20px 0;}
   .stat-card{
     background:#fff;border:1px solid var(--line);border-radius:12px;
     padding:14px 14px 12px;
@@ -244,6 +261,7 @@
     td.mono{white-space:normal;}
     .chip-row.tight{flex-wrap:wrap;}
     .chip-row.tight .chip{flex:0 0 auto;padding:6px 10px;font-size:11px;}
+    .dash-grid{grid-template-columns:1fr;}
   }
 </style>
 </head>
@@ -259,9 +277,29 @@
       <div class="date-badge">
         작업날짜<b id="todayLabel">—</b>
         <button class="btn" id="adminToggleBtn" style="margin-top:10px;width:100%;font-size:12px;padding:7px 10px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.3);">담당자 모드</button>
+        <button class="btn" id="managerToggleBtn" style="margin-top:6px;width:100%;font-size:12px;padding:7px 10px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.3);">관리자 모드</button>
       </div>
     </div>
   </header>
+
+  <div id="managerSection" style="display:none;margin-bottom:24px;">
+    <h2 style="font-family:var(--font-display);font-size:18px;margin:0 0 2px;">관리자 대시보드</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 18px;">작업유형 / 장소 / 작업팀 기준 일일 작업 현황</p>
+    <div class="dash-grid">
+      <div class="dash-panel">
+        <h3>작업유형별 현황</h3>
+        <div id="chartType" class="bar-chart"></div>
+      </div>
+      <div class="dash-panel">
+        <h3>작업장소별 현황 <span style="font-weight:400;color:var(--ink-soft);">(상위 10개)</span></h3>
+        <div id="chartPlace" class="bar-chart"></div>
+      </div>
+      <div class="dash-panel">
+        <h3>작업팀별 현황</h3>
+        <div id="chartTeam" class="bar-chart"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="upload-zone" id="lockedZone">
     <h2>🔒 담당자 전용</h2>
@@ -286,7 +324,10 @@
       <button class="btn btn-ghost" id="reuploadBtn" style="display:none;">파일 다시 업로드</button>
     </div>
 
-    <h2 style="font-family:var(--font-display);font-size:16px;margin:0 0 12px;">실제작업 list</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 12px;">
+      <h2 style="font-family:var(--font-display);font-size:16px;margin:0;">실제작업 list</h2>
+      <button class="btn btn-ghost" id="exportPptBtn" style="display:none;font-size:12.5px;padding:8px 14px;">📥 PPT 목록 엑셀로 다운로드</button>
+    </div>
     <div class="chip-row" id="chipRowA"></div>
     <table>
       <thead>
@@ -425,6 +466,7 @@ function updateAdminUI(){
   document.getElementById('delColHeader').style.display = isAdmin ? '' : 'none';
   document.getElementById('delColHeaderA').style.display = isAdmin ? '' : 'none';
   document.getElementById('ptwSection').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('exportPptBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
   // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
   if(!document.getElementById('dash').classList.contains('show')){
@@ -447,6 +489,75 @@ document.getElementById('adminToggleBtn').addEventListener('click', ()=>{
     alert('암호가 일치하지 않습니다.');
   }
 });
+
+let isManager = false;
+const MANAGER_KEY = "123456";
+document.getElementById('managerToggleBtn').addEventListener('click', ()=>{
+  if(isManager){
+    isManager = false;
+    document.getElementById('managerToggleBtn').textContent = '관리자 모드';
+    document.getElementById('managerSection').style.display = 'none';
+    return;
+  }
+  const input = prompt('관리자 암호를 입력하세요');
+  if(input === null) return;
+  if(input.replace(/\s/g,'') !== MANAGER_KEY){
+    alert('암호가 일치하지 않습니다.');
+    return;
+  }
+  isManager = true;
+  document.getElementById('managerToggleBtn').textContent = '관리자 모드 ✓';
+  document.getElementById('managerSection').style.display = 'block';
+  renderManagerDashboard();
+});
+
+function computeBreakdown(pairs, limit){
+  // pairs: [[label, count-increment], ...] 형태로 넘기지 않고, 아래에서 직접 카운트 맵을 만들어 전달
+  const sorted = Object.entries(pairs).sort((a,b)=> b[1]-a[1]);
+  return limit ? sorted.slice(0, limit) : sorted;
+}
+
+function renderBarChart(containerId, entries){
+  const el = document.getElementById(containerId);
+  if(!entries.length){ el.innerHTML = '<div class="bar-empty">데이터 없음</div>'; return; }
+  const max = Math.max(...entries.map(e=>e[1]));
+  el.innerHTML = entries.map(([label, count])=>`
+    <div class="bar-row">
+      <div class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${max?Math.round(count/max*100):0}%;"></div></div>
+      <div class="bar-count">${count}</div>
+    </div>`).join('');
+}
+
+function renderManagerDashboard(){
+  const typeCounts = {};
+  const placeCounts = {};
+  const teamCounts = {};
+
+  records.forEach(r=>{
+    const tags = classify(r);
+    const types = tags.length ? tags.map(t=>t.label) : ['일반'];
+    types.forEach(t => typeCounts[t] = (typeCounts[t]||0)+1);
+    const place = r['작업위치'] || '미상';
+    placeCounts[place] = (placeCounts[place]||0)+1;
+    const team = mapOpsGroup(r['운전부서']);
+    teamCounts[team] = (teamCounts[team]||0)+1;
+  });
+
+  pptRecords.forEach(r=>{
+    const tags = classifyFreeText(r['작업유형']);
+    const types = tags.length ? tags.map(t=>t.label) : ['일반'];
+    types.forEach(t => typeCounts[t] = (typeCounts[t]||0)+1);
+    const place = r['장소'] || '미상';
+    placeCounts[place] = (placeCounts[place]||0)+1;
+    const team = r['운전부서'] || '미상';
+    teamCounts[team] = (teamCounts[team]||0)+1;
+  });
+
+  renderBarChart('chartType', computeBreakdown(typeCounts));
+  renderBarChart('chartPlace', computeBreakdown(placeCounts, 10));
+  renderBarChart('chartTeam', computeBreakdown(teamCounts));
+}
 
 updateAdminUI();
 
@@ -795,6 +906,7 @@ function renderDash(){
   renderTable();
   updateWorkDateLabel();
   if(hasLocalDraft) showDraftNote();
+  if(isManager) renderManagerDashboard();
 }
 
 function showDraftNote(){
@@ -1093,6 +1205,32 @@ function exportUnreportedExcel(){
 }
 
 document.getElementById('exportUnreportedBtn').addEventListener('click', exportUnreportedExcel);
+
+function exportPptExcel(){
+  if(!pptRecords.length){
+    alert('실제작업 list에 데이터가 없습니다. PPT를 먼저 업로드해주세요.');
+    return;
+  }
+  const rows = pptRecords.map(r => ({
+    '날짜': toYYYYMMDD(r['작업날짜']),
+    '발행번호': r['발행번호'] || '',
+    '업체': r['업체'] || '',
+    '인원': r['인원'] || '',
+    '장소': r['장소'] || '',
+    '내용': r['내용'] || '',
+    '작업유형': r['작업유형'] || '',
+    '담당자': r['담당자'] || '',
+    '운전부서': r['운전부서'] || '',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:10},{wch:10},{wch:14},{wch:8},{wch:16},{wch:40},{wch:16},{wch:10},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '실제작업list');
+  const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  XLSX.writeFile(wb, `실제작업list_${dateStr}.xlsx`);
+}
+
+document.getElementById('exportPptBtn').addEventListener('click', exportPptExcel);
 
 subscribeLive();
 </script>
