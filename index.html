@@ -463,10 +463,7 @@ function updateAdminUI(){
   document.getElementById('publishBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('reuploadBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('resetLink').style.display = isAdmin ? '' : 'none';
-  document.getElementById('delColHeader').style.display = isAdmin ? '' : 'none';
   document.getElementById('delColHeaderA').style.display = isAdmin ? '' : 'none';
-  document.getElementById('ptwSection').style.display = isAdmin ? 'block' : 'none';
-  document.getElementById('exportPptBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('adminToggleBtn').textContent = isAdmin ? '담당자 모드 ✓' : '담당자 모드';
   // 아직 게시된 데이터가 없는 초기 상태일 때만: 잠금 화면 vs 실제 업로드 화면 전환
   if(!document.getElementById('dash').classList.contains('show')){
@@ -497,6 +494,7 @@ document.getElementById('managerToggleBtn').addEventListener('click', ()=>{
     isManager = false;
     document.getElementById('managerToggleBtn').textContent = '관리자 모드';
     document.getElementById('managerSection').style.display = 'none';
+    updateManagerVisibility();
     return;
   }
   const input = prompt('관리자 암호를 입력하세요');
@@ -508,8 +506,16 @@ document.getElementById('managerToggleBtn').addEventListener('click', ()=>{
   isManager = true;
   document.getElementById('managerToggleBtn').textContent = '관리자 모드 ✓';
   document.getElementById('managerSection').style.display = 'block';
+  updateManagerVisibility();
   renderManagerDashboard();
 });
+
+function updateManagerVisibility(){
+  document.getElementById('ptwSection').style.display = isManager ? 'block' : 'none';
+  document.getElementById('exportPptBtn').style.display = isManager ? '' : 'none';
+  document.getElementById('delColHeader').style.display = isManager ? '' : 'none';
+  if(document.getElementById('dash').classList.contains('show')) renderTable();
+}
 
 function computeBreakdown(pairs, limit){
   // pairs: [[label, count-increment], ...] 형태로 넘기지 않고, 아래에서 직접 카운트 맵을 만들어 전달
@@ -1070,7 +1076,7 @@ function renderTable(){
 
   const tbody = document.getElementById('tbody');
   if(!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isAdmin?9:8}">조건에 맞는 허가서가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${isManager?9:8}">조건에 맞는 허가서가 없습니다.</td></tr>`;
   } else {
     tbody.innerHTML = rows.map(r=>{
       const tags = classify(r);
@@ -1089,7 +1095,7 @@ function renderTable(){
         <td>${escapeHtml(r['발행부서']||'')}</td>
         <td>${escapeHtml(r['운전부서']||'')}</td>
         <td>${escapeHtml(r['발행자']||'')}</td>
-        ${isAdmin ? `<td><button class="del-btn" data-del-ptw="${id}" title="삭제">✕</button></td>` : ''}
+        ${isManager ? `<td><button class="del-btn" data-del-ptw="${id}" title="삭제">✕</button></td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -1126,7 +1132,7 @@ function resetAll(){
 
 document.getElementById('tbody').addEventListener('click', e=>{
   const btn = e.target.closest('[data-del-ptw]');
-  if(!btn || !isAdmin) return;
+  if(!btn || !isManager) return;
   const id = btn.getAttribute('data-del-ptw');
   if(!confirm(`발행번호 #${id} 항목을 목록에서 삭제할까요?`)) return;
   records = records.filter(r => String(r['발행번호']) !== id);
