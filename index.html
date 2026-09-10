@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
@@ -138,6 +139,31 @@
     font-size:11.5px;font-weight:600;color:var(--navy-900);
   }
   .bar-empty{font-size:12.5px;color:var(--ink-soft);text-align:center;padding:20px 0;}
+
+  .stacked-chart{display:flex;flex-direction:column;gap:10px;}
+  .stacked-row{display:flex;align-items:center;gap:10px;}
+  .stacked-date{
+    width:82px;flex:0 0 82px;font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);
+  }
+  .stacked-track{
+    flex:1;display:flex;height:20px;border-radius:5px;overflow:hidden;background:var(--steel-100);
+  }
+  .stacked-seg{height:100%;}
+  .stacked-total{width:30px;flex:0 0 30px;text-align:right;font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:var(--navy-900);}
+  .legend-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--steel-100);}
+  .legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-soft);font-family:var(--font-mono);}
+  .legend-swatch{width:10px;height:10px;border-radius:3px;flex:0 0 10px;}
+
+  .stacked-seg.fire{background:#d9524a;}
+  .stacked-seg.confined{background:#4a72c9;}
+  .stacked-seg.elec{background:#c99a1f;}
+  .stacked-seg.dig{background:#8a7355;}
+  .stacked-seg.rad{background:#9c4fae;}
+  .stacked-seg.height{background:#1f9b78;}
+  .stacked-seg.heavy{background:#63638f;}
+  .stacked-seg.dive{background:#2f9bc9;}
+  .stacked-seg.psm{background:var(--orange-deep);}
+  .stacked-seg.general{background:#b7c1cb;}
   .stat-card{
     background:#fff;border:1px solid var(--line);border-radius:12px;
     padding:14px 14px 12px;
@@ -298,6 +324,18 @@
         <h3>작업팀별 현황</h3>
         <div id="chartTeam" class="bar-chart"></div>
       </div>
+    </div>
+
+    <div class="dash-panel" style="margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+        <div>
+          <h3 style="margin:0 0 4px;">날짜별 작업유형 누적 현황 <span style="font-weight:400;color:var(--ink-soft);">(게시할 때마다 자동 기록, 최근 30일)</span></h3>
+          <div id="historyRangeLabel" style="font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);"></div>
+        </div>
+        <button class="btn btn-ghost" id="exportHistoryPptxBtn" style="font-size:12.5px;padding:8px 14px;">📊 월별 PPT로 다운로드</button>
+      </div>
+      <div id="chartHistory" class="stacked-chart"></div>
+      <div id="historyLegend" class="legend-row"></div>
     </div>
   </div>
 
@@ -536,14 +574,10 @@ function renderBarChart(containerId, entries){
 }
 
 function renderManagerDashboard(){
-  const typeCounts = {};
   const placeCounts = {};
   const teamCounts = {};
 
   records.forEach(r=>{
-    const tags = classify(r);
-    const types = tags.length ? tags.map(t=>t.label) : ['일반'];
-    types.forEach(t => typeCounts[t] = (typeCounts[t]||0)+1);
     const place = r['작업위치'] || '미상';
     placeCounts[place] = (placeCounts[place]||0)+1;
     const team = mapOpsGroup(r['운전부서']);
@@ -551,19 +585,139 @@ function renderManagerDashboard(){
   });
 
   pptRecords.forEach(r=>{
-    const tags = classifyFreeText(r['작업유형']);
-    const types = tags.length ? tags.map(t=>t.label) : ['일반'];
-    types.forEach(t => typeCounts[t] = (typeCounts[t]||0)+1);
     const place = r['장소'] || '미상';
     placeCounts[place] = (placeCounts[place]||0)+1;
     const team = r['운전부서'] || '미상';
     teamCounts[team] = (teamCounts[team]||0)+1;
   });
 
-  renderBarChart('chartType', computeBreakdown(typeCounts));
+  renderBarChart('chartType', computeBreakdown(computeTypeCounts()));
   renderBarChart('chartPlace', computeBreakdown(placeCounts, 10));
   renderBarChart('chartTeam', computeBreakdown(teamCounts));
+  loadAndRenderHistory();
 }
+
+function typeSegClass(label){
+  const found = HAZARD_DEFS.find(h=>h.label===label);
+  return found ? found.cls : 'general';
+}
+
+let historyEntries = [];
+
+function formatRangeLabel(first, last){
+  if(!first || !last) return '';
+  const [fy,fm,fd] = first.split('-');
+  const [ly,lm,ld] = last.split('-');
+  if(first === last) return `${fy}.${fm}.${fd}`;
+  if(fy === ly) return `${fy}.${fm}.${fd} ~ ${lm}.${ld}`;
+  return `${fy}.${fm}.${fd} ~ ${ly}.${lm}.${ld}`;
+}
+
+async function loadAndRenderHistory(){
+  const container = document.getElementById('chartHistory');
+  const legendEl = document.getElementById('historyLegend');
+  const rangeEl = document.getElementById('historyRangeLabel');
+  if(!db){ container.innerHTML = '<div class="bar-empty">Firebase 연결 안 됨</div>'; return; }
+  container.innerHTML = '<div class="bar-empty">불러오는 중…</div>';
+  try{
+    const snap = await db.collection('ptw').doc('history_log').get();
+    const entries = (snap.exists && Array.isArray(snap.data().entries)) ? snap.data().entries : [];
+    historyEntries = entries;
+    if(!entries.length){
+      container.innerHTML = '<div class="bar-empty">아직 기록된 날짜별 데이터가 없습니다. "전체에 게시"를 하면 자동으로 쌓입니다.</div>';
+      legendEl.innerHTML = '';
+      rangeEl.textContent = '';
+      return;
+    }
+    rangeEl.textContent = formatRangeLabel(entries[0].date, entries[entries.length-1].date);
+    const allLabels = new Set();
+    entries.forEach(e => Object.keys(e.typeCounts||{}).forEach(l=>allLabels.add(l)));
+
+    container.innerHTML = entries.map(e=>{
+      const total = Object.values(e.typeCounts||{}).reduce((a,b)=>a+b,0);
+      const segs = Object.entries(e.typeCounts||{})
+        .sort((a,b)=>b[1]-a[1])
+        .map(([label,count])=>`<div class="stacked-seg ${typeSegClass(label)}" style="width:${total?Math.round(count/total*100):0}%;" title="${escapeHtml(label)}: ${count}"></div>`)
+        .join('');
+      return `
+      <div class="stacked-row">
+        <div class="stacked-date">${escapeHtml(e.date)}</div>
+        <div class="stacked-track">${segs}</div>
+        <div class="stacked-total">${total}</div>
+      </div>`;
+    }).join('');
+
+    legendEl.innerHTML = [...allLabels].map(label=>`
+      <div class="legend-item"><span class="legend-swatch ${typeSegClass(label)}"></span>${escapeHtml(label)}</div>
+    `).join('');
+  }catch(err){
+    console.error(err);
+    container.innerHTML = '<div class="bar-empty">불러오기 실패 (Firestore 규칙을 확인하세요)</div>';
+  }
+}
+
+async function exportHistoryPptx(){
+  if(!historyEntries.length){
+    alert('기록된 데이터가 없습니다. 먼저 관리자 대시보드에서 데이터를 불러온 뒤 시도해주세요.');
+    return;
+  }
+  const btn = document.getElementById('exportHistoryPptxBtn');
+  const original = btn.textContent;
+  btn.textContent = '생성 중…'; btn.disabled = true;
+  try{
+    // 월별 집계
+    const monthly = {};
+    historyEntries.forEach(e=>{
+      const month = e.date.slice(0,7); // YYYY-MM
+      if(!monthly[month]) monthly[month] = {};
+      Object.entries(e.typeCounts||{}).forEach(([label,count])=>{
+        monthly[month][label] = (monthly[month][label]||0) + count;
+      });
+    });
+    const months = Object.keys(monthly).sort();
+    const allLabels = new Set();
+    months.forEach(m=> Object.keys(monthly[m]).forEach(l=>allLabels.add(l)));
+    const labels = [...allLabels];
+    const categories = months.map(m=>{ const [y,mo] = m.split('-'); return `${y}.${mo}`; });
+    const chartData = labels.map(label=>({
+      name: label,
+      labels: categories,
+      values: months.map(m => monthly[m][label] || 0),
+    }));
+
+    const pptx = new PptxGenJS();
+    pptx.defineLayout({name:'PTW', width:10, height:5.63});
+    pptx.layout = 'PTW';
+
+    const slide1 = pptx.addSlide();
+    slide1.addText('월별 작업유형 누적 현황', {x:0.4, y:0.28, fontSize:20, bold:true, color:'0F1E33'});
+    slide1.addText(formatRangeLabel(historyEntries[0].date, historyEntries[historyEntries.length-1].date), {x:0.4, y:0.72, fontSize:12, color:'5B6B7F'});
+    slide1.addChart(pptx.ChartType.bar, chartData, {
+      x:0.4, y:1.15, w:9.2, h:4.2,
+      barDir:'col',
+      barGrouping:'stacked',
+      showLegend:true, legendPos:'b',
+      catAxisTitle:'월', valAxisTitle:'건수',
+    });
+
+    const slide2 = pptx.addSlide();
+    slide2.addText('월별 상세 수치', {x:0.4, y:0.28, fontSize:18, bold:true, color:'0F1E33'});
+    const tableRows = [['작업유형', ...categories].map(t=>({text:t, options:{bold:true, fill:{color:'EEF1F5'}, fontSize:11}}))];
+    labels.forEach(label=>{
+      tableRows.push([label, ...months.map(m=>String(monthly[m][label]||0))].map(t=>({text:t, options:{fontSize:10.5}})));
+    });
+    slide2.addTable(tableRows, {x:0.4, y:0.8, w:9.2, autoPage:false, border:{type:'solid', color:'DDE3EA', pt:0.5}});
+
+    const fname = `월별작업유형현황_${months[0]}_${months[months.length-1]}.pptx`;
+    await pptx.writeFile({fileName: fname});
+  }catch(err){
+    console.error(err);
+    alert('PPT 생성 실패: ' + err.message);
+  }
+  btn.textContent = original; btn.disabled = false;
+}
+
+document.getElementById('exportHistoryPptxBtn').addEventListener('click', exportHistoryPptx);
 
 updateAdminUI();
 
@@ -614,6 +768,54 @@ function showPublishedNote(savedAt){
   note.innerHTML = `<span>실시간 게시된 최신 분류 결과입니다${t ? ` (업데이트: ${t})` : ''}. 접속한 모든 사람에게 자동으로 반영됩니다.</span>`;
 }
 
+function normalizeDateKey(v){
+  const s = String(v||'').trim();
+  const m = s.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+  if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  return null;
+}
+
+function getPrimaryWorkDateKey(){
+  const counts = {};
+  records.forEach(r=>{ const d = normalizeDateKey(r['작업시작일']); if(d) counts[d]=(counts[d]||0)+1; });
+  pptRecords.forEach(r=>{ const d = normalizeDateKey(r['작업날짜']); if(d) counts[d]=(counts[d]||0)+1; });
+  const keys = Object.keys(counts);
+  if(!keys.length) return null;
+  keys.sort((a,b)=> counts[b]-counts[a]);
+  return keys[0];
+}
+
+function computeTypeCounts(){
+  const typeCounts = {};
+  records.forEach(r=>{
+    const tags = classify(r);
+    (tags.length ? tags.map(t=>t.label) : ['일반']).forEach(t=> typeCounts[t]=(typeCounts[t]||0)+1);
+  });
+  pptRecords.forEach(r=>{
+    const tags = classifyFreeText(r['작업유형']);
+    (tags.length ? tags.map(t=>t.label) : ['일반']).forEach(t=> typeCounts[t]=(typeCounts[t]||0)+1);
+  });
+  return typeCounts;
+}
+
+async function saveHistorySnapshot(){
+  if(!db) return;
+  const dateKey = getPrimaryWorkDateKey();
+  if(!dateKey) return;
+  try{
+    const ref = db.collection('ptw').doc('history_log');
+    const snap = await ref.get();
+    let entries = (snap.exists && Array.isArray(snap.data().entries)) ? snap.data().entries : [];
+    entries = entries.filter(e => e.date !== dateKey);
+    entries.push({date: dateKey, typeCounts: computeTypeCounts(), savedAt: new Date().toISOString()});
+    entries.sort((a,b)=> a.date < b.date ? -1 : 1);
+    if(entries.length > 30) entries = entries.slice(entries.length - 30);
+    await ref.set({entries, adminKey: ADMIN_KEY});
+  }catch(err){
+    console.error('날짜별 기록 저장 실패', err);
+  }
+}
+
 async function publishToFirebase(){
   if(!db){ alert('Firebase 연결에 실패했습니다. firebaseConfig 값을 확인하세요.'); return; }
   const btn = document.getElementById('publishBtn');
@@ -626,8 +828,10 @@ async function publishToFirebase(){
       pptRecords,
       adminKey: ADMIN_KEY,
     });
+    await saveHistorySnapshot();
     btn.textContent = '게시 완료 ✓';
     hasLocalDraft = false;
+    if(isManager) loadAndRenderHistory();
   }catch(err){
     console.error(err);
     btn.textContent = '게시 실패';
