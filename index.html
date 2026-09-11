@@ -320,7 +320,7 @@
         </div>
         <button class="btn btn-ghost" id="exportHistoryPptxBtn" style="font-size:12.5px;padding:8px 14px;">📊 월별 PPT로 다운로드</button>
       </div>
-      <div id="chartCumulative" class="stacked-chart"></div>
+      <div id="chartCumulative" class="bar-chart"></div>
       <div id="cumulativeLegend" class="legend-row"></div>
     </div>
 
@@ -592,25 +592,20 @@ async function loadAndRenderHistory(){
     const allLabels = new Set();
     entries.forEach(e => Object.keys(e.typeCounts||{}).forEach(l=>allLabels.add(l)));
 
-    // ===== 누적(전체 합산) 막대그래프 — 한 줄짜리 =====
+    // ===== 누적(전체 합산) 막대그래프 — 유형별 가로 막대 =====
     const cumulative = {};
     entries.forEach(e => Object.entries(e.typeCounts||{}).forEach(([label,count])=>{
       cumulative[label] = (cumulative[label]||0) + count;
     }));
-    const cumTotal = Object.values(cumulative).reduce((a,b)=>a+b,0);
-    const cumSegs = Object.entries(cumulative)
-      .sort((a,b)=>b[1]-a[1])
-      .map(([label,count])=>`<div class="stacked-seg ${typeSegClass(label)}" style="width:${cumTotal?Math.round(count/cumTotal*100):0}%;" title="${escapeHtml(label)}: ${count}"></div>`)
-      .join('');
-    cumContainer.innerHTML = `
-      <div class="stacked-row">
-        <div class="stacked-date">전체</div>
-        <div class="stacked-track" style="height:28px;">${cumSegs}</div>
-        <div class="stacked-total">${cumTotal}</div>
-      </div>`;
-    cumLegendEl.innerHTML = [...allLabels].map(label=>`
-      <div class="legend-item"><span class="legend-swatch ${typeSegClass(label)}"></span>${escapeHtml(label)} (${cumulative[label]||0})</div>
-    `).join('');
+    const cumSorted = Object.entries(cumulative).sort((a,b)=>b[1]-a[1]);
+    const cumMax = cumSorted.length ? Math.max(...cumSorted.map(e=>e[1])) : 0;
+    cumContainer.innerHTML = cumSorted.length ? cumSorted.map(([label,count])=>`
+      <div class="bar-row">
+        <div class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${cumMax?Math.round(count/cumMax*100):0}%;"></div></div>
+        <div class="bar-count">${count}</div>
+      </div>`).join('') : '<div class="bar-empty">데이터 없음</div>';
+    cumLegendEl.innerHTML = '';
 
     // ===== 일별 막대그래프 =====
     container.innerHTML = entries.map(e=>{
@@ -768,10 +763,6 @@ function getPrimaryWorkDateKey(){
 
 function computeTypeCounts(){
   const typeCounts = {};
-  records.forEach(r=>{
-    const tags = classify(r);
-    (tags.length ? tags.map(t=>t.label) : ['일반']).forEach(t=> typeCounts[t]=(typeCounts[t]||0)+1);
-  });
   pptRecords.forEach(r=>{
     const tags = classifyFreeText(r['작업유형']);
     (tags.length ? tags.map(t=>t.label) : ['일반']).forEach(t=> typeCounts[t]=(typeCounts[t]||0)+1);
