@@ -310,30 +310,22 @@
 
   <div id="managerSection" style="display:none;margin-bottom:24px;">
     <h2 style="font-family:var(--font-display);font-size:18px;margin:0 0 2px;">관리자 대시보드</h2>
-    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 18px;">작업유형 / 장소 / 작업팀 기준 일일 작업 현황</p>
-    <div class="dash-grid">
-      <div class="dash-panel">
-        <h3>작업유형별 현황</h3>
-        <div id="chartType" class="bar-chart"></div>
-      </div>
-      <div class="dash-panel">
-        <h3>작업장소별 현황 <span style="font-weight:400;color:var(--ink-soft);">(상위 10개)</span></h3>
-        <div id="chartPlace" class="bar-chart"></div>
-      </div>
-      <div class="dash-panel">
-        <h3>작업팀별 현황</h3>
-        <div id="chartTeam" class="bar-chart"></div>
-      </div>
-    </div>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 18px;">작업유형 기준 누적 · 일별 작업 현황</p>
 
-    <div class="dash-panel" style="margin-top:14px;">
+    <div class="dash-panel">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <div>
-          <h3 style="margin:0 0 4px;">날짜별 작업유형 누적 현황 <span style="font-weight:400;color:var(--ink-soft);">(게시할 때마다 자동 기록, 최근 30일)</span></h3>
+          <h3 style="margin:0 0 4px;">누적 작업유형 현황 <span style="font-weight:400;color:var(--ink-soft);">(최근 30일 합계)</span></h3>
           <div id="historyRangeLabel" style="font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);"></div>
         </div>
         <button class="btn btn-ghost" id="exportHistoryPptxBtn" style="font-size:12.5px;padding:8px 14px;">📊 월별 PPT로 다운로드</button>
       </div>
+      <div id="chartCumulative" class="stacked-chart"></div>
+      <div id="cumulativeLegend" class="legend-row"></div>
+    </div>
+
+    <div class="dash-panel" style="margin-top:14px;">
+      <h3 style="margin:0 0 14px;">일별 작업유형 현황 <span style="font-weight:400;color:var(--ink-soft);">(게시할 때마다 자동 기록, 최근 30일)</span></h3>
       <div id="chartHistory" class="stacked-chart"></div>
       <div id="historyLegend" class="legend-row"></div>
     </div>
@@ -555,45 +547,7 @@ function updateManagerVisibility(){
   if(document.getElementById('dash').classList.contains('show')) renderTable();
 }
 
-function computeBreakdown(pairs, limit){
-  // pairs: [[label, count-increment], ...] 형태로 넘기지 않고, 아래에서 직접 카운트 맵을 만들어 전달
-  const sorted = Object.entries(pairs).sort((a,b)=> b[1]-a[1]);
-  return limit ? sorted.slice(0, limit) : sorted;
-}
-
-function renderBarChart(containerId, entries){
-  const el = document.getElementById(containerId);
-  if(!entries.length){ el.innerHTML = '<div class="bar-empty">데이터 없음</div>'; return; }
-  const max = Math.max(...entries.map(e=>e[1]));
-  el.innerHTML = entries.map(([label, count])=>`
-    <div class="bar-row">
-      <div class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${max?Math.round(count/max*100):0}%;"></div></div>
-      <div class="bar-count">${count}</div>
-    </div>`).join('');
-}
-
 function renderManagerDashboard(){
-  const placeCounts = {};
-  const teamCounts = {};
-
-  records.forEach(r=>{
-    const place = r['작업위치'] || '미상';
-    placeCounts[place] = (placeCounts[place]||0)+1;
-    const team = mapOpsGroup(r['운전부서']);
-    teamCounts[team] = (teamCounts[team]||0)+1;
-  });
-
-  pptRecords.forEach(r=>{
-    const place = r['장소'] || '미상';
-    placeCounts[place] = (placeCounts[place]||0)+1;
-    const team = r['운전부서'] || '미상';
-    teamCounts[team] = (teamCounts[team]||0)+1;
-  });
-
-  renderBarChart('chartType', computeBreakdown(computeTypeCounts()));
-  renderBarChart('chartPlace', computeBreakdown(placeCounts, 10));
-  renderBarChart('chartTeam', computeBreakdown(teamCounts));
   loadAndRenderHistory();
 }
 
@@ -617,15 +571,20 @@ async function loadAndRenderHistory(){
   const container = document.getElementById('chartHistory');
   const legendEl = document.getElementById('historyLegend');
   const rangeEl = document.getElementById('historyRangeLabel');
-  if(!db){ container.innerHTML = '<div class="bar-empty">Firebase 연결 안 됨</div>'; return; }
+  const cumContainer = document.getElementById('chartCumulative');
+  const cumLegendEl = document.getElementById('cumulativeLegend');
+  if(!db){ container.innerHTML = '<div class="bar-empty">Firebase 연결 안 됨</div>'; cumContainer.innerHTML = ''; return; }
   container.innerHTML = '<div class="bar-empty">불러오는 중…</div>';
+  cumContainer.innerHTML = '<div class="bar-empty">불러오는 중…</div>';
   try{
     const snap = await db.collection('ptw').doc('history_log').get();
     const entries = (snap.exists && Array.isArray(snap.data().entries)) ? snap.data().entries : [];
     historyEntries = entries;
     if(!entries.length){
       container.innerHTML = '<div class="bar-empty">아직 기록된 날짜별 데이터가 없습니다. "전체에 게시"를 하면 자동으로 쌓입니다.</div>';
+      cumContainer.innerHTML = '<div class="bar-empty">아직 데이터가 없습니다.</div>';
       legendEl.innerHTML = '';
+      cumLegendEl.innerHTML = '';
       rangeEl.textContent = '';
       return;
     }
@@ -633,6 +592,27 @@ async function loadAndRenderHistory(){
     const allLabels = new Set();
     entries.forEach(e => Object.keys(e.typeCounts||{}).forEach(l=>allLabels.add(l)));
 
+    // ===== 누적(전체 합산) 막대그래프 — 한 줄짜리 =====
+    const cumulative = {};
+    entries.forEach(e => Object.entries(e.typeCounts||{}).forEach(([label,count])=>{
+      cumulative[label] = (cumulative[label]||0) + count;
+    }));
+    const cumTotal = Object.values(cumulative).reduce((a,b)=>a+b,0);
+    const cumSegs = Object.entries(cumulative)
+      .sort((a,b)=>b[1]-a[1])
+      .map(([label,count])=>`<div class="stacked-seg ${typeSegClass(label)}" style="width:${cumTotal?Math.round(count/cumTotal*100):0}%;" title="${escapeHtml(label)}: ${count}"></div>`)
+      .join('');
+    cumContainer.innerHTML = `
+      <div class="stacked-row">
+        <div class="stacked-date">전체</div>
+        <div class="stacked-track" style="height:28px;">${cumSegs}</div>
+        <div class="stacked-total">${cumTotal}</div>
+      </div>`;
+    cumLegendEl.innerHTML = [...allLabels].map(label=>`
+      <div class="legend-item"><span class="legend-swatch ${typeSegClass(label)}"></span>${escapeHtml(label)} (${cumulative[label]||0})</div>
+    `).join('');
+
+    // ===== 일별 막대그래프 =====
     container.innerHTML = entries.map(e=>{
       const total = Object.values(e.typeCounts||{}).reduce((a,b)=>a+b,0);
       const segs = Object.entries(e.typeCounts||{})
@@ -653,6 +633,7 @@ async function loadAndRenderHistory(){
   }catch(err){
     console.error(err);
     container.innerHTML = '<div class="bar-empty">불러오기 실패 (Firestore 규칙을 확인하세요)</div>';
+    cumContainer.innerHTML = '';
   }
 }
 
