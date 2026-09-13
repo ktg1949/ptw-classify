@@ -154,16 +154,16 @@
   .legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-soft);font-family:var(--font-mono);}
   .legend-swatch{width:10px;height:10px;border-radius:3px;flex:0 0 10px;}
 
-  .stacked-seg.fire{background:#d9524a;}
-  .stacked-seg.confined{background:#4a72c9;}
-  .stacked-seg.elec{background:#c99a1f;}
-  .stacked-seg.dig{background:#8a7355;}
-  .stacked-seg.rad{background:#9c4fae;}
-  .stacked-seg.height{background:#1f9b78;}
-  .stacked-seg.heavy{background:#63638f;}
-  .stacked-seg.dive{background:#2f9bc9;}
-  .stacked-seg.psm{background:var(--orange-deep);}
-  .stacked-seg.general{background:#b7c1cb;}
+  .stacked-seg.fire, .bar-fill.fire{background:var(--red);}
+  .stacked-seg.confined, .bar-fill.confined{background:#2c4fa8;}
+  .stacked-seg.elec, .bar-fill.elec{background:#8a6a06;}
+  .stacked-seg.dig, .bar-fill.dig{background:#6b573a;}
+  .stacked-seg.rad, .bar-fill.rad{background:#7a2f8c;}
+  .stacked-seg.height, .bar-fill.height{background:#1a7a5e;}
+  .stacked-seg.heavy, .bar-fill.heavy{background:#4a4a72;}
+  .stacked-seg.dive, .bar-fill.dive{background:#186f96;}
+  .stacked-seg.psm, .bar-fill.psm{background:var(--orange-deep);}
+  .stacked-seg.general, .bar-fill.general{background:#b7c1cb;}
   .stat-card{
     background:#fff;border:1px solid var(--line);border-radius:12px;
     padding:14px 14px 12px;
@@ -318,7 +318,10 @@
           <h3 style="margin:0 0 4px;">누적 작업유형 현황 <span style="font-weight:400;color:var(--ink-soft);">(최근 30일 합계)</span></h3>
           <div id="historyRangeLabel" style="font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);"></div>
         </div>
-        <button class="btn btn-ghost" id="exportHistoryPptxBtn" style="font-size:12.5px;padding:8px 14px;">📊 월별 PPT로 다운로드</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost" id="exportHistoryPptxBtn" style="font-size:12.5px;padding:8px 14px;">📊 월별 PPT로 다운로드</button>
+          <button class="btn btn-ghost" id="resetHistoryBtn" style="font-size:12.5px;padding:8px 14px;color:var(--red);border-color:var(--red);">🗑 기록 초기화</button>
+        </div>
       </div>
       <div id="chartCumulative" class="bar-chart"></div>
       <div id="cumulativeLegend" class="legend-row"></div>
@@ -602,7 +605,7 @@ async function loadAndRenderHistory(){
     cumContainer.innerHTML = cumSorted.length ? cumSorted.map(([label,count])=>`
       <div class="bar-row">
         <div class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${cumMax?Math.round(count/cumMax*100):0}%;"></div></div>
+        <div class="bar-track"><div class="bar-fill ${typeSegClass(label)}" style="width:${cumMax?Math.round(count/cumMax*100):0}%;"></div></div>
         <div class="bar-count">${count}</div>
       </div>`).join('') : '<div class="bar-empty">데이터 없음</div>';
     cumLegendEl.innerHTML = '';
@@ -694,6 +697,24 @@ async function exportHistoryPptx(){
 }
 
 document.getElementById('exportHistoryPptxBtn').addEventListener('click', exportHistoryPptx);
+
+document.getElementById('resetHistoryBtn').addEventListener('click', async ()=>{
+  if(!db){ alert('Firebase 연결이 안 되어 있습니다.'); return; }
+  if(!confirm('날짜별 누적 기록을 전부 삭제할까요? 되돌릴 수 없습니다.')) return;
+  const btn = document.getElementById('resetHistoryBtn');
+  const original = btn.textContent;
+  btn.textContent = '초기화 중…'; btn.disabled = true;
+  try{
+    await db.collection('ptw').doc('history_log').set({entries: [], adminKey: ADMIN_KEY});
+    historyEntries = [];
+    await loadAndRenderHistory();
+    alert('기록이 초기화되었습니다. 오늘부터 "전체에 게시"를 누르면 새로 쌓입니다.');
+  }catch(err){
+    console.error(err);
+    alert('초기화 실패: ' + err.message);
+  }
+  btn.textContent = original; btn.disabled = false;
+});
 
 updateAdminUI();
 
