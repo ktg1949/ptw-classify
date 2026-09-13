@@ -648,7 +648,19 @@ async function exportHistoryPptx(){
   const original = btn.textContent;
   btn.textContent = '생성 중…'; btn.disabled = true;
   try{
-    // 월별 집계
+    // 작업유형별 누적 합계 (대시보드의 "누적 작업유형 현황"과 동일한 집계)
+    const cumulative = {};
+    historyEntries.forEach(e=>{
+      Object.entries(e.typeCounts||{}).forEach(([label,count])=>{
+        cumulative[label] = (cumulative[label]||0) + count;
+      });
+    });
+    const cumSorted = Object.entries(cumulative).sort((a,b)=>b[1]-a[1]);
+    const typeLabels = cumSorted.map(([label])=>label);
+    const typeValues = cumSorted.map(([,count])=>count);
+    const chartData = [{ name:'건수', labels: typeLabels, values: typeValues }];
+
+    // 월별 집계 (2번 슬라이드 상세 표용)
     const monthly = {};
     historyEntries.forEach(e=>{
       const month = e.date.slice(0,7); // YYYY-MM
@@ -658,40 +670,33 @@ async function exportHistoryPptx(){
       });
     });
     const months = Object.keys(monthly).sort();
-    const allLabels = new Set();
-    months.forEach(m=> Object.keys(monthly[m]).forEach(l=>allLabels.add(l)));
-    const labels = [...allLabels];
     const categories = months.map(m=>{ const [y,mo] = m.split('-'); return `${y}.${mo}`; });
-    const chartData = labels.map(label=>({
-      name: label,
-      labels: categories,
-      values: months.map(m => monthly[m][label] || 0),
-    }));
 
     const pptx = new PptxGenJS();
     pptx.defineLayout({name:'PTW', width:10, height:5.63});
     pptx.layout = 'PTW';
 
     const slide1 = pptx.addSlide();
-    slide1.addText('월별 작업유형 누적 현황', {x:0.4, y:0.28, fontSize:20, bold:true, color:'0F1E33'});
+    slide1.addText('작업유형별 누적 현황', {x:0.4, y:0.28, fontSize:20, bold:true, color:'0F1E33'});
     slide1.addText(formatRangeLabel(historyEntries[0].date, historyEntries[historyEntries.length-1].date), {x:0.4, y:0.72, fontSize:12, color:'5B6B7F'});
     slide1.addChart(pptx.ChartType.bar, chartData, {
       x:0.4, y:1.15, w:9.2, h:4.2,
       barDir:'bar',
-      barGrouping:'stacked',
-      showLegend:true, legendPos:'b',
-      catAxisTitle:'월', valAxisTitle:'건수',
+      showLegend:false,
+      catAxisTitle:'작업유형', valAxisTitle:'건수',
+      showValue:true,
     });
 
     const slide2 = pptx.addSlide();
     slide2.addText('월별 상세 수치', {x:0.4, y:0.28, fontSize:18, bold:true, color:'0F1E33'});
-    const tableRows = [['작업유형', ...categories].map(t=>({text:t, options:{bold:true, fill:{color:'EEF1F5'}, fontSize:11}}))];
-    labels.forEach(label=>{
-      tableRows.push([label, ...months.map(m=>String(monthly[m][label]||0))].map(t=>({text:t, options:{fontSize:10.5}})));
+    const tableRows = [['작업유형', ...categories, '합계'].map(t=>({text:t, options:{bold:true, fill:{color:'EEF1F5'}, fontSize:11}}))];
+    typeLabels.forEach(label=>{
+      const row = [label, ...months.map(m=>String(monthly[m][label]||0)), String(cumulative[label]||0)];
+      tableRows.push(row.map(t=>({text:t, options:{fontSize:10.5}})));
     });
     slide2.addTable(tableRows, {x:0.4, y:0.8, w:9.2, autoPage:false, border:{type:'solid', color:'DDE3EA', pt:0.5}});
 
-    const fname = `월별작업유형현황_${months[0]}_${months[months.length-1]}.pptx`;
+    const fname = `작업유형별누적현황_${months[0]}_${months[months.length-1]}.pptx`;
     await pptx.writeFile({fileName: fname});
   }catch(err){
     console.error(err);
@@ -704,12 +709,13 @@ document.getElementById('exportHistoryPptxBtn').addEventListener('click', export
 
 document.getElementById('reflectStatsBtn').addEventListener('click', async ()=>{
   if(!db){ alert('Firebase 연결이 안 되어 있습니다.'); return; }
-  if(!pptRecords.length && !records.length){
-    alert('반영할 데이터가 없습니다. 먼저 파일을 업로드하거나 게시된 데이터를 불러오세요.');
+  if(!pptRecords.length){
+    alert('반영할 실제작업 list 데이터가 없습니다. 먼저 PPT를 업로드하세요.');
     return;
   }
-  const dateKey = getPrimaryWorkDateKey();
-  if(!dateKey){
+  const groups = groupPptRecordsByDate();
+  const dateKeys = Object.keys(groups).sort();
+  if(!dateKeys.length){
     alert('작업 날짜를 확인할 수 없어 반영하지 못했습니다.');
     return;
   }
@@ -719,7 +725,8 @@ document.getElementById('reflectStatsBtn').addEventListener('click', async ()=>{
   try{
     await saveHistorySnapshot();
     await loadAndRenderHistory();
-    alert(`${dateKey} 통계가 반영되었습니다.`);
+    const label = dateKeys.length > 1 ? `${dateKeys[0]} ~ ${dateKeys[dateKeys.length-1]} (${dateKeys.length}일치)` : dateKeys[0];
+    alert(`${label} 통계가 반영되었습니다.`);
   }catch(err){
     console.error(err);
     alert('반영 실패: ' + err.message);
@@ -813,25 +820,43 @@ function getPrimaryWorkDateKey(){
   return keys[0];
 }
 
-function computeTypeCounts(){
-  const typeCounts = {};
+function groupPptRecordsByDate(){
+  const groups = {};
   pptRecords.forEach(r=>{
+    const d = normalizeDateKey(r['작업날짜']);
+    if(!d) return;
+    if(!groups[d]) groups[d] = [];
+    groups[d].push(r);
+  });
+  return groups;
+}
+
+function computeTypeCountsFor(rows){
+  const typeCounts = {};
+  rows.forEach(r=>{
     const tags = classifyFreeText(r['작업유형']);
     (tags.length ? tags.map(t=>t.label) : ['일반']).forEach(t=> typeCounts[t]=(typeCounts[t]||0)+1);
   });
   return typeCounts;
 }
 
+function computeTypeCounts(){
+  return computeTypeCountsFor(pptRecords);
+}
+
 async function saveHistorySnapshot(){
   if(!db) return;
-  const dateKey = getPrimaryWorkDateKey();
-  if(!dateKey) return;
+  const groups = groupPptRecordsByDate();
+  const dateKeys = Object.keys(groups);
+  if(!dateKeys.length) return;
   try{
     const ref = db.collection('ptw').doc('history_log');
     const snap = await ref.get();
     let entries = (snap.exists && Array.isArray(snap.data().entries)) ? snap.data().entries : [];
-    entries = entries.filter(e => e.date !== dateKey);
-    entries.push({date: dateKey, typeCounts: computeTypeCounts(), savedAt: new Date().toISOString()});
+    dateKeys.forEach(dateKey=>{
+      entries = entries.filter(e => e.date !== dateKey);
+      entries.push({date: dateKey, typeCounts: computeTypeCountsFor(groups[dateKey]), savedAt: new Date().toISOString()});
+    });
     entries.sort((a,b)=> a.date < b.date ? -1 : 1);
     if(entries.length > 30) entries = entries.slice(entries.length - 30);
     await ref.set({entries, adminKey: ADMIN_KEY});
@@ -852,10 +877,8 @@ async function publishToFirebase(){
       pptRecords,
       adminKey: ADMIN_KEY,
     });
-    await saveHistorySnapshot();
     btn.textContent = '게시 완료 ✓';
     hasLocalDraft = false;
-    if(isManager) loadAndRenderHistory();
   }catch(err){
     console.error(err);
     btn.textContent = '게시 실패';
